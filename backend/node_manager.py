@@ -11,6 +11,15 @@ redis_client = aioredis.from_url("redis://10.160.13.16:6379/0", decode_responses
 async def register_node(node: Dict):
     node_id = node.get("id", str(uuid.uuid4()))
     node["id"] = node_id
+
+    # Ensure max_sessions and active_sessions are tracked numerically
+    max_sessions = int(node.get("max_sessions", 1))
+    active_sessions = int(node.get("active_sessions", 0))
+
+    node["max_sessions"] = max_sessions
+    node["active_sessions"] = active_sessions
+    node.setdefault("status", "online")
+
     await redis_client.hset("nodes", node_id, json.dumps(node))
     return {"message": "Node registered", "id": node_id}
 
