@@ -1,0 +1,7 @@
+version: '3.9'
+services:
+  proxy:
+    build: .
+    image: appium-selenium-proxy
+    ports:
+      - "8080:8090"
