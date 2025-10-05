@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Request, HTTPException
+from fastapi.responses import Response
 import httpx
 import redis.asyncio as aioredis
 import json
@@ -32,22 +33,22 @@ async def forward_request(request: Request, path: str):
             request.method, target_url, headers=headers, content=body
         )
 
-    return resp.text, resp.status_code, resp.headers
+    return resp.content, resp.status_code, resp.headers
 
 # ✅ Add explicit route for session creation
-@router.api_route("/wd/hub/session", methods=["POST"])
+@router.api_route("/wd/hub/session", methods=["POST", "OPTIONS"])
 async def create_session(request: Request):
     content, status, headers = await forward_request(request, "session")
     return Response(content=content, status_code=status, headers=dict(headers))
 
 # ✅ Add route for generic proxy handling (any other Appium path)
-@router.api_route("/wd/hub/{path:path}", methods=["GET", "POST", "DELETE", "PUT", "PATCH"])
+@router.api_route("/wd/hub/{path:path}", methods=["GET", "POST", "DELETE", "PUT", "PATCH", "OPTIONS"])
 async def proxy_generic(request: Request, path: str):
     content, status, headers = await forward_request(request, path)
     return Response(content=content, status_code=status, headers=dict(headers))
 
 # ✅ Add Selenium-style root route (no wd/hub prefix)
-@router.api_route("/session", methods=["POST"])
+@router.api_route("/session", methods=["POST", "OPTIONS"])
 async def selenium_create_session(request: Request):
     content, status, headers = await forward_request(request, "session")
     return Response(content=content, status_code=status, headers=dict(headers))
