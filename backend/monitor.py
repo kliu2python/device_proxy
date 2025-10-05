@@ -9,13 +9,20 @@ async def check_node_status(node_id: str, node: dict, redis_client):
         async with httpx.AsyncClient(timeout=3) as client:
             resp = await client.get(url)
             if resp.status_code == 200:
-                data = json.loads(await redis_client.hget("nodes", node_id))
-                data["status"] = "online"
+                node_json = await redis_client.hget("nodes", node_id)
+                if not node_json:
+                    return
+                data = json.loads(node_json)
+                if data.get("status") != "busy":
+                    data["status"] = "online"
                 await redis_client.hset("nodes", node_id, json.dumps(data))
             else:
                 raise Exception()
     except Exception:
-        data = json.loads(await redis_client.hget("nodes", node_id))
+        node_json = await redis_client.hget("nodes", node_id)
+        if not node_json:
+            return
+        data = json.loads(node_json)
         data["status"] = "offline"
         await redis_client.hset("nodes", node_id, json.dumps(data))
 
