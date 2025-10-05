@@ -4,7 +4,7 @@ import json
 import httpx
 
 async def check_node_status(node_id: str, node: dict, redis_client):
-    url = f"http://{node['host']}:{node['port']}/status"
+    url = f"http://{node['host']}:{node['port']}/wd/hub/status"
     try:
         async with httpx.AsyncClient(timeout=3) as client:
             resp = await client.get(url)

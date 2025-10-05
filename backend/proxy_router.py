@@ -95,7 +95,7 @@ async def forward_request(request: Request, path: str):
             max_sessions = int(node.get("max_sessions", 1))
             active_sessions = int(node.get("active_sessions", 0))
 
-            if status == "online" and active_sessions < max_sessions:
+            if request.method == "DELETE" or (status == "online" and active_sessions < max_sessions):
                 target_node = node
                 target_node_id = node_id
                 break
@@ -129,8 +129,7 @@ async def create_session(request: Request):
 @router.api_route("/wd/hub/{path:path}", methods=["GET", "POST", "DELETE", "PUT", "PATCH", "OPTIONS"])
 async def proxy_generic(request: Request, path: str):
     content, status, headers, node_id, session_id = await forward_request(request, path)
-
-    if request.method == "DELETE" and session_id and 200 <= status < 300:
+    if request.method == "DELETE" and session_id and 200 <= status < 405 :
         await _cleanup_session(session_id, node_id)
 
     return Response(content=content, status_code=status, headers=dict(headers))
