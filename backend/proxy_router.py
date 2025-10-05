@@ -1,14 +1,18 @@
-from fastapi import APIRouter, Request, HTTPException
-from fastapi.responses import Response
+import json
+import logging
+from typing import Optional
+
 import httpx
 import redis.asyncio as aioredis
-import json
-from typing import Optional
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import Response
 
 router = APIRouter()
 redis_client = aioredis.from_url("redis://10.160.13.16:6379/0", decode_responses=True)
 
 SESSION_MAP_KEY = "session_map"
+
+logger = logging.getLogger(__name__)
 
 
 def _extract_session_id_from_path(path: str) -> Optional[str]:
@@ -40,6 +44,7 @@ def _extract_session_id_from_response(content: bytes) -> Optional[str]:
 async def _update_node_session_count(node_id: str, delta: int):
     node_json = await redis_client.hget("nodes", node_id)
     if not node_json:
+        logger.warning("Node %s not found while updating session count", node_id)
         return
 
     node = json.loads(node_json)
@@ -59,6 +64,7 @@ async def _update_node_session_count(node_id: str, delta: int):
 
 
 async def _cleanup_session(session_id: str, node_id: Optional[str]):
+    logger.info("Cleaning up session %s for node %s", session_id, node_id)
     await redis_client.hdel(SESSION_MAP_KEY, session_id)
     if node_id:
         await _update_node_session_count(node_id, -1)
@@ -76,17 +82,24 @@ async def forward_request(request: Request, path: str):
     if session_id:
         target_node_id = await redis_client.hget(SESSION_MAP_KEY, session_id)
         if not target_node_id:
+            logger.warning("Session %s not found for path %s", session_id, path)
             raise HTTPException(status_code=404, detail="Session not found")
 
         node_json = await redis_client.hget("nodes", target_node_id)
         if not node_json:
             await redis_client.hdel(SESSION_MAP_KEY, session_id)
+            logger.warning(
+                "Node %s not available for session %s; removed stale mapping",
+                target_node_id,
+                session_id,
+            )
             raise HTTPException(status_code=503, detail="Node unavailable for session")
 
         target_node = json.loads(node_json)
     else:
         nodes = await redis_client.hgetall("nodes")
         if not nodes:
+            logger.error("No nodes available to process request %s %s", request.method, path)
             raise HTTPException(status_code=503, detail="No nodes available")
 
         for node_id, node_data in nodes.items():
@@ -101,9 +114,16 @@ async def forward_request(request: Request, path: str):
                 break
 
         if not target_node:
+            logger.info("All nodes busy when processing %s %s", request.method, path)
             raise HTTPException(status_code=503, detail="No nodes available for new session")
 
     target_url = f"http://{target_node['host']}:{target_node['port']}/wd/hub/{path}"
+    logger.debug(
+        "Forwarding %s request to %s via node %s",
+        request.method,
+        target_url,
+        target_node_id or target_node.get("id"),
+    )
 
     async with httpx.AsyncClient(timeout=None) as client:
         resp = await client.request(
@@ -122,6 +142,7 @@ async def create_session(request: Request):
         if session_id:
             await redis_client.hset(SESSION_MAP_KEY, session_id, node_id)
             await _update_node_session_count(node_id, 1)
+            logger.info("Created session %s on node %s", session_id, node_id)
 
     return Response(content=content, status_code=status, headers=dict(headers))
 
@@ -131,6 +152,7 @@ async def proxy_generic(request: Request, path: str):
     content, status, headers, node_id, session_id = await forward_request(request, path)
     if request.method == "DELETE" and session_id and 200 <= status < 405 :
         await _cleanup_session(session_id, node_id)
+        logger.info("Session %s terminated with status %s", session_id, status)
 
     return Response(content=content, status_code=status, headers=dict(headers))
 
