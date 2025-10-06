@@ -139,7 +139,56 @@ body {
 }
 
 .table-wrapper {
+  position: relative;
   overflow-x: auto;
+}
+
+.table-wrapper.is-loading table {
+  opacity: 0.55;
+  transition: opacity 0.2s ease;
+}
+
+.table-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  background: rgba(247, 247, 251, 0.82);
+  backdrop-filter: blur(3px);
+  border-radius: 1rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.table-loading-overlay.visible {
+  opacity: 1;
+}
+
+.table-loading-overlay__spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid rgba(63, 81, 181, 0.15);
+  border-top-color: var(--accent);
+  animation: table-overlay-spin 0.9s linear infinite;
+}
+
+.table-loading-overlay__label {
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+@keyframes table-overlay-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 #nodes-table {

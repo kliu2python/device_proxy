@@ -50,6 +50,16 @@
           <p class="table-subtitle">Click the details button to view node information for manual copy.</p>
         </div>
         <div class="table-wrapper">
+          <div
+            id="table-loading-overlay"
+            class="table-loading-overlay"
+            role="status"
+            aria-live="polite"
+            aria-hidden="true"
+          >
+            <div class="table-loading-overlay__spinner" aria-hidden="true"></div>
+            <span class="table-loading-overlay__label">Refreshing nodes…</span>
+          </div>
           <table id="nodes-table">
             <thead>
               <tr>
