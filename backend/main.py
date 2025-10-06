@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.logging_config import setup_logging
 from backend.proxy_router import router as proxy_router
-from backend.node_manager import router as node_router
+from backend.node_manager import load_nodes_from_csv, router as node_router
 from backend.monitor import start_monitor
 
 setup_logging()
@@ -43,5 +43,6 @@ async def serve_frontend():
 
 @app.on_event("startup")
 async def startup_event():
+    await load_nodes_from_csv()
     logger.info("Starting background monitor task")
     asyncio.create_task(start_monitor())

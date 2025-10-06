@@ -1,0 +1,2 @@
+id,type,udid,host,port,protocol,path,max_sessions,active_sessions,status,platform,platform_version,device_name,resources
+example-node-id,physical,00008020-001C2D113C88002E,127.0.0.1,4723,http,/wd/hub,1,0,online,iOS,17.4,Example Device,"{""session_data"": {""device"": ""metadata""}}"
