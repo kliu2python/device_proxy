@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Device Proxy Nodes</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script defer src="/static/app.js"></script>
+  </head>
+  <body>
+    <header class="page-header">
+      <div class="branding">
+        <h1>Device Proxy Nodes</h1>
+        <p class="subtitle">
+          Monitor Appium/Selenium nodes and copy connection details with a single click.
+        </p>
+      </div>
+      <div class="actions">
+        <button id="refresh-button" class="button">Refresh</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="summary" aria-label="Node summary">
+        <div class="summary-card" data-status="total">
+          <span class="summary-label">Total</span>
+          <span id="summary-total" class="summary-value">0</span>
+        </div>
+        <div class="summary-card" data-status="online">
+          <span class="summary-label">Online</span>
+          <span id="summary-online" class="summary-value">0</span>
+        </div>
+        <div class="summary-card" data-status="busy">
+          <span class="summary-label">Busy</span>
+          <span id="summary-busy" class="summary-value">0</span>
+        </div>
+        <div class="summary-card" data-status="offline">
+          <span class="summary-label">Offline</span>
+          <span id="summary-offline" class="summary-value">0</span>
+        </div>
+        <div class="summary-card last-updated">
+          <span class="summary-label">Last updated</span>
+          <span id="summary-updated" class="summary-value">--</span>
+        </div>
+      </section>
+
+      <section class="table-section" aria-label="Node details">
+        <div class="table-header">
+          <h2>Nodes</h2>
+          <p class="table-subtitle">Click the copy button to reuse node details elsewhere.</p>
+        </div>
+        <div class="table-wrapper">
+          <table id="nodes-table">
+            <thead>
+              <tr>
+                <th scope="col">Node</th>
+                <th scope="col">Endpoint</th>
+                <th scope="col">Sessions</th>
+                <th scope="col">Status</th>
+                <th scope="col" class="actions-column">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colspan="5" class="empty-state">Loading nodes...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>
