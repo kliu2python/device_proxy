@@ -1,38 +1,244 @@
+import csv
+import io
 import json
 import logging
 import uuid
-from typing import Dict
+from pathlib import Path
+from typing import Dict, Iterable, Optional
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 
 router = APIRouter()
 redis_client = aioredis.from_url("redis://10.160.13.16:6379/0", decode_responses=True)
 
 logger = logging.getLogger(__name__)
 
-@router.post("/register")
-async def register_node(node: Dict):
-    node_id = node.get("id", str(uuid.uuid4()))
+NODE_RESOURCES_CSV = Path(__file__).resolve().parent / "node_resources.csv"
+CSV_TEMPLATE_HEADERS = [
+    "id",
+    "type",
+    "udid",
+    "host",
+    "port",
+    "protocol",
+    "path",
+    "max_sessions",
+    "active_sessions",
+    "status",
+    "platform",
+    "platform_version",
+    "device_name",
+    "resources",
+]
+
+
+class NodeRegistrationError(Exception):
+    """Raised when a node cannot be registered."""
+
+
+def _strip_or_none(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
+
+
+async def _physical_udid_exists(udid: str, *, exclude_node_id: Optional[str] = None) -> bool:
+    nodes = await redis_client.hgetall("nodes")
+    for existing_id, data in nodes.items():
+        if exclude_node_id and existing_id == exclude_node_id:
+            continue
+
+        try:
+            stored = json.loads(data)
+        except json.JSONDecodeError:
+            logger.warning("Skipping malformed node data for %s during UDID check", existing_id)
+            continue
+
+        if (stored.get("type") or "").lower() != "physical":
+            continue
+
+        if _strip_or_none(stored.get("udid")) == udid:
+            return True
+
+    return False
+
+
+def _normalise_numeric(value: Optional[str], default: int) -> int:
+    if value in (None, ""):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise NodeRegistrationError(f"Invalid numeric value '{value}'") from exc
+
+
+def _normalise_node_payload(raw_node: Dict) -> Dict:
+    node = dict(raw_node)
+    node_id = node.get("id") or str(uuid.uuid4())
     node["id"] = node_id
 
-    # Ensure max_sessions and active_sessions are tracked numerically
-    max_sessions = int(node.get("max_sessions", 1))
-    active_sessions = int(node.get("active_sessions", 0))
-
-    node["max_sessions"] = max_sessions
-    node["active_sessions"] = active_sessions
+    node["max_sessions"] = _normalise_numeric(node.get("max_sessions"), 1)
+    node["active_sessions"] = _normalise_numeric(node.get("active_sessions"), 0)
     node.setdefault("status", "online")
 
-    await redis_client.hset("nodes", node_id, json.dumps(node))
+    node_type = (node.get("type") or "").lower()
+    if node_type == "physical":
+        udid = _strip_or_none(node.get("udid"))
+        if not udid:
+            raise NodeRegistrationError("Physical nodes must include a UDID.")
+        node["udid"] = udid
+
+    resources = node.get("resources")
+    if isinstance(resources, str):
+        try:
+            node["resources"] = json.loads(resources)
+        except json.JSONDecodeError:
+            logger.warning("Failed to decode resources JSON for node %s", node_id)
+            node.pop("resources", None)
+
+    return node
+
+
+async def _store_node(node: Dict) -> Dict:
+    node = _normalise_node_payload(node)
+
+    node_type = (node.get("type") or "").lower()
+    if node_type == "physical" and await _physical_udid_exists(node["udid"], exclude_node_id=node["id"]):
+        raise NodeRegistrationError(f"Physical device with UDID '{node['udid']}' is already registered.")
+
+    await redis_client.hset("nodes", node["id"], json.dumps(node))
     logger.info(
         "Registered/updated node %s at %s:%s with max_sessions=%s",
-        node_id,
+        node["id"],
         node.get("host"),
         node.get("port"),
         node.get("max_sessions"),
     )
-    return {"message": "Node registered", "id": node_id}
+    return node
+
+
+def _rows_from_csv(csv_path: Path) -> Iterable[Dict[str, str]]:
+    with csv_path.open(newline="", encoding="utf-8") as csv_file:
+        reader = csv.DictReader(csv_file)
+        for row in reader:
+            if not row:
+                continue
+            # Skip completely empty rows
+            if all(value is None or value.strip() == "" for value in row.values()):
+                continue
+            yield row
+
+
+def _csv_row_to_node(row: Dict[str, str]) -> Dict:
+    node: Dict[str, Optional[str]] = {}
+    for key, value in row.items():
+        if value is None:
+            continue
+        value = value.strip()
+        if value == "":
+            continue
+        node[key] = value
+    return node
+
+
+async def load_nodes_from_csv(csv_path: Optional[Path] = None) -> Dict[str, int]:
+    """Register nodes from a CSV file.
+
+    Parameters
+    ----------
+    csv_path:
+        Optional path to the CSV file.  When omitted the default
+        ``backend/node_resources.csv`` file is used.
+
+    Returns
+    -------
+    dict
+        Summary containing ``registered`` and ``skipped`` counters.
+    """
+
+    path = csv_path or NODE_RESOURCES_CSV
+    summary = {"registered": 0, "skipped": 0}
+
+    if not path.exists():
+        logger.info("Node resources CSV %s not found; skipping auto-registration", path)
+        return summary
+
+    logger.info("Loading node resources from %s", path)
+
+    for index, row in enumerate(_rows_from_csv(path), start=2):
+        try:
+            node = _csv_row_to_node(row)
+            await _store_node(node)
+        except NodeRegistrationError as exc:
+            summary["skipped"] += 1
+            logger.warning("Skipping row %s in %s: %s", index, path, exc)
+        except Exception:
+            summary["skipped"] += 1
+            logger.exception("Unexpected error registering node from row %s in %s", index, path)
+        else:
+            summary["registered"] += 1
+
+    logger.info(
+        "Completed CSV load from %s: %s registered, %s skipped",
+        path,
+        summary["registered"],
+        summary["skipped"],
+    )
+    return summary
+
+
+def generate_csv_template() -> str:
+    """Return a CSV template with the expected headers and example data."""
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=CSV_TEMPLATE_HEADERS)
+    writer.writeheader()
+    writer.writerow(
+        {
+            "id": "example-node-id",
+            "type": "physical",
+            "udid": "00008020-001C2D113C88002E",
+            "host": "127.0.0.1",
+            "port": "4723",
+            "protocol": "http",
+            "path": "/wd/hub",
+            "max_sessions": "1",
+            "active_sessions": "0",
+            "status": "online",
+            "platform": "iOS",
+            "platform_version": "17.4",
+            "device_name": "Example Device",
+            "resources": json.dumps({"session_data": {"device": "metadata"}}),
+        }
+    )
+    return output.getvalue()
+
+@router.post("/register")
+async def register_node(node: Dict):
+    try:
+        stored_node = await _store_node(node)
+    except NodeRegistrationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    return {"message": "Node registered", "id": stored_node["id"]}
+
+
+@router.post("/register/from-csv")
+async def register_nodes_from_csv():
+    summary = await load_nodes_from_csv()
+    return {"message": "Nodes processed from CSV", **summary}
+
+
+@router.get("/nodes/template")
+async def get_nodes_template():
+    content = generate_csv_template()
+    headers = {
+        "Content-Disposition": "attachment; filename=node_resources_template.csv"
+    }
+    return Response(content=content, media_type="text/csv", headers=headers)
 
 @router.delete("/unregister/{node_id}")
 async def unregister_node(node_id: str):
