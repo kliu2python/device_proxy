@@ -70,9 +70,61 @@ async def _cleanup_session(session_id: str, node_id: Optional[str]):
         await _update_node_session_count(node_id, -1)
 
 
+def _parse_session_payload(body: bytes) -> Optional[Dict]:
+    """Best-effort JSON decode of an Appium session payload."""
+
+    if not body:
+        return {}
+
+    try:
+        payload = json.loads(body.decode() or "{}")
+    except json.JSONDecodeError:
+        logger.warning("Failed to decode session payload for capability merge")
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+
+    return payload
+
+
+def _extract_requested_platform(payload: Dict) -> Optional[str]:
+    """Return the requested platform name from a session payload if present."""
+
+    def _platform_from_caps(caps: Optional[Dict]) -> Optional[str]:
+        if not isinstance(caps, dict):
+            return None
+        for key in ("platformName", "appium:platformName"):
+            value = caps.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
+    capabilities = payload.get("capabilities")
+    if isinstance(capabilities, dict):
+        platform = _platform_from_caps(capabilities.get("alwaysMatch"))
+        if platform:
+            return platform
+
+        first_match = capabilities.get("firstMatch")
+        if isinstance(first_match, list):
+            for item in first_match:
+                platform = _platform_from_caps(item)
+                if platform:
+                    return platform
+
+    desired_caps = payload.get("desiredCapabilities")
+    if isinstance(desired_caps, dict):
+        platform = _platform_from_caps(desired_caps)
+        if platform:
+            return platform
+
+    return None
+
+
 def _merge_session_capabilities(
-    body: bytes, headers: Dict[str, str], session_data: Dict
-) -> Tuple[bytes, Dict[str, str]]:
+    body: bytes, headers: Dict[str, str], session_data: Dict, *, payload: Optional[Dict] = None
+) -> Tuple[bytes, Dict[str, str], Optional[Dict]]:
     """Merge node session defaults into the request payload.
 
     The proxy stores per-node ``session_data`` in Redis so that device specific
@@ -84,11 +136,9 @@ def _merge_session_capabilities(
     the downstream HTTP client.
     """
 
-    try:
-        payload = json.loads(body.decode() or "{}") if body else {}
-    except json.JSONDecodeError:
-        logger.warning("Failed to decode session payload for capability merge")
-        return body, headers
+    parsed_payload: Optional[Dict] = payload if isinstance(payload, dict) else _parse_session_payload(body)
+    if parsed_payload is None:
+        return body, headers, payload
 
     def _merge(target: Dict) -> bool:
         changed = False
@@ -100,7 +150,7 @@ def _merge_session_capabilities(
 
     changed = False
 
-    capabilities = payload.get("capabilities")
+    capabilities = parsed_payload.get("capabilities")
     if isinstance(capabilities, dict):
         always_match = capabilities.setdefault("alwaysMatch", {})
         if isinstance(always_match, dict):
@@ -112,17 +162,17 @@ def _merge_session_capabilities(
                 if isinstance(item, dict):
                     changed = _merge(item) or changed
 
-    desired_caps = payload.get("desiredCapabilities")
+    desired_caps = parsed_payload.get("desiredCapabilities")
     if isinstance(desired_caps, dict):
         changed = _merge(desired_caps) or changed
 
     if not changed:
-        return body, headers
+        return body, headers, parsed_payload
 
-    new_body = json.dumps(payload).encode()
+    new_body = json.dumps(parsed_payload).encode()
     headers = dict(headers)
     headers.pop("content-length", None)
-    return new_body, headers
+    return new_body, headers, parsed_payload
 
 
 async def forward_request(request: Request, path: str):
@@ -133,6 +183,16 @@ async def forward_request(request: Request, path: str):
 
     target_node = None
     target_node_id = None
+
+    payload: Optional[Dict] = None
+    requested_platform: Optional[str] = None
+
+    if not session_id and request.method == "POST":
+        payload = _parse_session_payload(body)
+        if payload is not None:
+            platform_name = _extract_requested_platform(payload)
+            if platform_name:
+                requested_platform = platform_name.lower()
 
     if session_id:
         target_node_id = await redis_client.hget(SESSION_MAP_KEY, session_id)
@@ -163,6 +223,13 @@ async def forward_request(request: Request, path: str):
             max_sessions = int(node.get("max_sessions", 1))
             active_sessions = int(node.get("active_sessions", 0))
 
+            if requested_platform:
+                node_platform = (node.get("platform") or "").strip()
+                if not node_platform:
+                    continue
+                if node_platform.lower() != requested_platform:
+                    continue
+
             if request.method == "DELETE" or (status == "online" and active_sessions < max_sessions):
                 target_node = node
                 target_node_id = node_id
@@ -186,7 +253,9 @@ async def forward_request(request: Request, path: str):
         if isinstance(resources, dict):
             session_data = resources.get("session_data")
         if isinstance(session_data, dict):
-            body, headers = _merge_session_capabilities(body, headers, session_data)
+            body, headers, payload = _merge_session_capabilities(
+                body, headers, session_data, payload=payload
+            )
 
     async with httpx.AsyncClient(timeout=None) as client:
         resp = await client.request(
