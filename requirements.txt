@@ -1,4 +1,5 @@
 fastapi
+aiofiles
 uvicorn
 httpx
 redis
