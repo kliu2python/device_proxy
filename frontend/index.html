@@ -12,7 +12,7 @@
       <div class="branding">
         <h1>Device Proxy Nodes</h1>
         <p class="subtitle">
-          Monitor Appium/Selenium nodes and copy connection details with a single click.
+          Monitor Appium/Selenium nodes and inspect connection details with a single click.
         </p>
       </div>
       <div class="actions">
@@ -47,7 +47,7 @@
       <section class="table-section" aria-label="Node details">
         <div class="table-header">
           <h2>Nodes</h2>
-          <p class="table-subtitle">Click the copy button to reuse node details elsewhere.</p>
+          <p class="table-subtitle">Click the details button to view node information for manual copy.</p>
         </div>
         <div class="table-wrapper">
           <table id="nodes-table">
@@ -71,5 +71,31 @@
     </main>
 
     <div id="toast" role="status" aria-live="polite"></div>
+
+    <div
+      id="details-modal"
+      class="details-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-hidden="true"
+      aria-labelledby="details-modal-title"
+    >
+      <div class="details-modal__backdrop" data-dismiss></div>
+      <div class="details-modal__content" role="document">
+        <div class="details-modal__header">
+          <h3 id="details-modal-title">Node details</h3>
+          <button type="button" class="details-modal__close" data-dismiss aria-label="Close details">
+            &times;
+          </button>
+        </div>
+        <p class="details-modal__hint">Use the information below to copy the details manually.</p>
+        <pre
+          id="details-modal-body"
+          class="details-modal__body"
+          aria-labelledby="details-modal-title"
+          tabindex="0"
+        ></pre>
+      </div>
+    </div>
   </body>
 </html>
