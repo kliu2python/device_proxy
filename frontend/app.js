@@ -57,15 +57,7 @@ function showToast(message) {
 }
 
 function serializeNode(node) {
-  const payload = {
-    id: node.id,
-    endpoint: formatEndpoint(node),
-    status: deriveStatus(node),
-    max_sessions: node.max_sessions,
-    active_sessions: node.active_sessions,
-    platform: node.platform,
-    capabilities: node.capabilities,
-  };
+  const payload = node.resources.session_data;
 
   return JSON.stringify(payload, null, 2);
 }
