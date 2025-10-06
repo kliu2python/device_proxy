@@ -6,6 +6,15 @@ const summaryOnline = document.getElementById('summary-online');
 const summaryOffline = document.getElementById('summary-offline');
 const summaryBusy = document.getElementById('summary-busy');
 const summaryUpdated = document.getElementById('summary-updated');
+const detailsModal = document.getElementById('details-modal');
+const detailsBody = document.getElementById('details-modal-body');
+const dismissTargets = detailsModal
+  ? Array.from(detailsModal.querySelectorAll('[data-dismiss]'))
+  : [];
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
+
+let lastFocusedTrigger = null;
 
 const STATUS_PRIORITY = ['busy', 'offline', 'online'];
 
@@ -47,7 +56,7 @@ function showToast(message) {
   }, 2500);
 }
 
-async function copyNodeDetails(node) {
+function serializeNode(node) {
   const payload = {
     id: node.id,
     endpoint: formatEndpoint(node),
@@ -58,13 +67,85 @@ async function copyNodeDetails(node) {
     capabilities: node.capabilities,
   };
 
-  try {
-    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-    showToast(`Copied details for ${node.id}`);
-  } catch (error) {
-    console.error('Clipboard copy failed', error);
-    showToast('Unable to copy node details');
+  return JSON.stringify(payload, null, 2);
+}
+
+function closeDetailsModal() {
+  if (!detailsModal) {
+    return;
   }
+
+  detailsModal.classList.remove('visible');
+  detailsModal.setAttribute('aria-hidden', 'true');
+  if (lastFocusedTrigger && typeof lastFocusedTrigger.focus === 'function') {
+    if (!lastFocusedTrigger.isConnected) {
+      const fallbackTrigger = document.querySelector('.action-button');
+      if (fallbackTrigger) {
+        fallbackTrigger.focus();
+      }
+    } else {
+      lastFocusedTrigger.focus();
+    }
+  }
+  lastFocusedTrigger = null;
+}
+
+function showNodeDetails(node, triggerButton) {
+  if (!detailsModal || !detailsBody) {
+    console.warn('Details modal not available');
+    return;
+  }
+
+  lastFocusedTrigger = triggerButton || null;
+  detailsBody.textContent = serializeNode(node);
+  detailsModal.classList.add('visible');
+  detailsModal.setAttribute('aria-hidden', 'false');
+
+  const closeButton = detailsModal.querySelector('.details-modal__close');
+  if (closeButton) {
+    closeButton.focus();
+  }
+}
+
+if (detailsModal) {
+  dismissTargets.forEach((target) => {
+    target.addEventListener('click', closeDetailsModal);
+  });
+
+  detailsModal.addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab' || !detailsModal.classList.contains('visible')) {
+      return;
+    }
+
+    const focusableElements = Array.from(
+      detailsModal.querySelectorAll(FOCUSABLE_SELECTOR)
+    ).filter((element) => !element.hasAttribute('disabled'));
+
+    if (focusableElements.length === 0) {
+      event.preventDefault();
+      return;
+    }
+
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+    const { activeElement } = document;
+
+    if (event.shiftKey) {
+      if (activeElement === firstElement || !detailsModal.contains(activeElement)) {
+        event.preventDefault();
+        lastElement.focus();
+      }
+    } else if (activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && detailsModal.classList.contains('visible')) {
+      closeDetailsModal();
+    }
+  });
 }
 
 function renderRows(nodes) {
@@ -100,11 +181,12 @@ function renderRows(nodes) {
         <span class="badge" data-status="${deriveStatus(node)}">${deriveStatus(node)}</span>
       </td>
       <td>
-        <button class="action-button" data-copy="${node.id}">Copy details</button>
+        <button class="action-button" data-show="${node.id}">Show details</button>
       </td>
     `;
 
-    tr.querySelector('button[data-copy]').addEventListener('click', () => copyNodeDetails(node));
+    const trigger = tr.querySelector('button[data-show]');
+    trigger.addEventListener('click', () => showNodeDetails(node, trigger));
     tableBody.appendChild(tr);
   }
 }
