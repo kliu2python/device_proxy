@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Optional
+from typing import Dict, Optional, Tuple
 
 import httpx
 import redis.asyncio as aioredis
@@ -70,6 +70,61 @@ async def _cleanup_session(session_id: str, node_id: Optional[str]):
         await _update_node_session_count(node_id, -1)
 
 
+def _merge_session_capabilities(
+    body: bytes, headers: Dict[str, str], session_data: Dict
+) -> Tuple[bytes, Dict[str, str]]:
+    """Merge node session defaults into the request payload.
+
+    The proxy stores per-node ``session_data`` in Redis so that device specific
+    capabilities (e.g. UDID, automation name, SDK paths) can be applied
+    automatically.  When a create session request is routed through the proxy we
+    merge those defaults into both W3C ``capabilities`` payloads and legacy
+    ``desiredCapabilities`` dictionaries.  Headers are returned alongside the
+    (potentially) mutated body so the ``Content-Length`` can be recalculated by
+    the downstream HTTP client.
+    """
+
+    try:
+        payload = json.loads(body.decode() or "{}") if body else {}
+    except json.JSONDecodeError:
+        logger.warning("Failed to decode session payload for capability merge")
+        return body, headers
+
+    def _merge(target: Dict) -> bool:
+        changed = False
+        for key, value in session_data.items():
+            if key not in target or target[key] != value:
+                target[key] = value
+                changed = True
+        return changed
+
+    changed = False
+
+    capabilities = payload.get("capabilities")
+    if isinstance(capabilities, dict):
+        always_match = capabilities.setdefault("alwaysMatch", {})
+        if isinstance(always_match, dict):
+            changed = _merge(always_match) or changed
+
+        first_match = capabilities.get("firstMatch")
+        if isinstance(first_match, list):
+            for item in first_match:
+                if isinstance(item, dict):
+                    changed = _merge(item) or changed
+
+    desired_caps = payload.get("desiredCapabilities")
+    if isinstance(desired_caps, dict):
+        changed = _merge(desired_caps) or changed
+
+    if not changed:
+        return body, headers
+
+    new_body = json.dumps(payload).encode()
+    headers = dict(headers)
+    headers.pop("content-length", None)
+    return new_body, headers
+
+
 async def forward_request(request: Request, path: str):
     body = await request.body()
     headers = dict(request.headers)
@@ -124,6 +179,14 @@ async def forward_request(request: Request, path: str):
         target_url,
         target_node_id or target_node.get("id"),
     )
+
+    if not session_id:
+        resources = target_node.get("resources")
+        session_data = None
+        if isinstance(resources, dict):
+            session_data = resources.get("session_data")
+        if isinstance(session_data, dict):
+            body, headers = _merge_session_capabilities(body, headers, session_data)
 
     async with httpx.AsyncClient(timeout=None) as client:
         resp = await client.request(
