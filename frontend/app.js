@@ -1,5 +1,7 @@
 const tableBody = document.querySelector('#nodes-table tbody');
 const refreshButton = document.querySelector('#refresh-button');
+const tableWrapper = document.querySelector('.table-wrapper');
+const tableLoadingOverlay = document.getElementById('table-loading-overlay');
 const toast = document.getElementById('toast');
 const summaryTotal = document.getElementById('summary-total');
 const summaryOnline = document.getElementById('summary-online');
@@ -15,6 +17,9 @@ const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
 
 let lastFocusedTrigger = null;
+let isInitialLoad = true;
+
+const REFRESH_INTERVAL = 15000;
 
 const STATUS_PRIORITY = ['busy', 'offline', 'online'];
 
@@ -54,6 +59,16 @@ function showToast(message) {
   showToast._timer = setTimeout(() => {
     toast.classList.remove('visible');
   }, 2500);
+}
+
+function setTableLoading(isLoading) {
+  if (tableWrapper) {
+    tableWrapper.classList.toggle('is-loading', isLoading);
+  }
+  if (tableLoadingOverlay) {
+    tableLoadingOverlay.classList.toggle('visible', isLoading);
+    tableLoadingOverlay.setAttribute('aria-hidden', String(!isLoading));
+  }
 }
 
 function serializeNode(node) {
@@ -201,8 +216,15 @@ function updateSummary(nodes) {
   summaryUpdated.textContent = new Date().toLocaleTimeString();
 }
 
-async function loadNodes() {
-  tableBody.innerHTML = '<tr><td colspan="5" class="empty-state">Loading nodes...</td></tr>';
+async function loadNodes({ userInitiated = false } = {}) {
+  const hasExistingRows = tableBody && tableBody.querySelector('tr') && !tableBody.querySelector('.empty-state');
+  const shouldShowOverlay = !isInitialLoad || userInitiated;
+
+  if (!hasExistingRows && isInitialLoad) {
+    tableBody.innerHTML = '<tr><td colspan="5" class="empty-state">Loading nodes...</td></tr>';
+  } else if (shouldShowOverlay) {
+    setTableLoading(true);
+  }
 
   try {
     const nodeMap = await fetchJson('/nodes');
@@ -211,12 +233,20 @@ async function loadNodes() {
     updateSummary(nodes);
   } catch (error) {
     console.error('Failed to load nodes', error);
-    tableBody.innerHTML = '<tr><td colspan="5" class="empty-state">Unable to load nodes. Please try again.</td></tr>';
+    if (!hasExistingRows) {
+      tableBody.innerHTML =
+        '<tr><td colspan="5" class="empty-state">Unable to load nodes. Please try again.</td></tr>';
+    }
     showToast('Failed to load nodes');
+  } finally {
+    if (shouldShowOverlay) {
+      setTableLoading(false);
+    }
+    isInitialLoad = false;
   }
 }
 
-refreshButton.addEventListener('click', loadNodes);
+refreshButton.addEventListener('click', () => loadNodes({ userInitiated: true }));
 
 loadNodes();
-setInterval(loadNodes, 15000);
+setInterval(() => loadNodes(), REFRESH_INTERVAL);
