@@ -10,7 +10,7 @@ const summaryUpdated = document.getElementById('summary-updated');
 const STATUS_PRIORITY = ['busy', 'offline', 'online'];
 
 async function fetchJson(endpoint) {
-  const response = await fetch(endpoint);
+  const response = await fetch(`http://10.160.24.110:8080${endpoint}`);
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
   }
