@@ -5,3 +5,12 @@ services:
     image: appium-selenium-proxy
     ports:
       - "8080:8090"
+
+  frontend:
+    build:
+      context: ./frontend
+    image: device-proxy-frontend
+    depends_on:
+      - proxy
+    ports:
+      - "3000:80"
