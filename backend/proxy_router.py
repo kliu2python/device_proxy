@@ -125,53 +125,80 @@ def _extract_requested_platform(payload: Dict) -> Optional[str]:
 def _merge_session_capabilities(
     body: bytes, headers: Dict[str, str], session_data: Dict, *, payload: Optional[Dict] = None
 ) -> Tuple[bytes, Dict[str, str], Optional[Dict]]:
-    """Merge node session defaults into the request payload.
+    """
+    Merge node session defaults into W3C/legacy capabilities safely.
 
-    The proxy stores per-node ``session_data`` in Redis so that device specific
-    capabilities (e.g. UDID, automation name, SDK paths) can be applied
-    automatically.  When a create session request is routed through the proxy we
-    merge those defaults into both W3C ``capabilities`` payloads and legacy
-    ``desiredCapabilities`` dictionaries.  Headers are returned alongside the
-    (potentially) mutated body so the ``Content-Length`` can be recalculated by
-    the downstream HTTP client.
+    - Merges node-level defaults (e.g., UDID, automationName, etc.) into W3C payloads.
+    - Avoids duplicate keys between alwaysMatch and firstMatch.
+    - Updates Content-Length automatically after mutation.
     """
 
     parsed_payload: Optional[Dict] = payload if isinstance(payload, dict) else _parse_session_payload(body)
     if parsed_payload is None:
         return body, headers, payload
 
-    def _merge(target: Dict) -> bool:
+    def _merge(target: Dict, allowed_keys: Optional[set] = None) -> bool:
+        """Merge session_data into target dictionary with optional key whitelist."""
         changed = False
         for key, value in session_data.items():
+            if allowed_keys and key not in allowed_keys:
+                continue
+            # Never overwrite existing platformName keys (or appium:platformName)
+            if key in ("platformName", "appium:platformName") and key in target:
+                continue
             if key not in target or target[key] != value:
                 target[key] = value
                 changed = True
         return changed
 
     changed = False
-
     capabilities = parsed_payload.get("capabilities")
+
     if isinstance(capabilities, dict):
+        # Merge node defaults into alwaysMatch first
         always_match = capabilities.setdefault("alwaysMatch", {})
         if isinstance(always_match, dict):
             changed = _merge(always_match) or changed
 
+        # Merge into firstMatch but skip keys already in alwaysMatch
         first_match = capabilities.get("firstMatch")
         if isinstance(first_match, list):
+            existing_keys = set(always_match.keys())
             for item in first_match:
                 if isinstance(item, dict):
-                    changed = _merge(item) or changed
+                    changed = _merge(item, allowed_keys=set(session_data.keys()) - existing_keys) or changed
 
+        # 🔧 Deduplicate overlapping keys between alwaysMatch and firstMatch
+        if isinstance(always_match, dict) and isinstance(first_match, list):
+            for item in first_match:
+                if not isinstance(item, dict):
+                    continue
+                for key in list(item.keys()):
+                    plain_key = key.replace("appium:", "")
+                    if plain_key in always_match or key in always_match:
+                        item.pop(key, None)
+                        logger.debug(f"Removed duplicate key '{key}' from firstMatch to avoid W3C conflict")
+
+    # Legacy desiredCapabilities support (Appium JSONWP mode)
     desired_caps = parsed_payload.get("desiredCapabilities")
     if isinstance(desired_caps, dict):
         changed = _merge(desired_caps) or changed
 
+    # If nothing changed, return early
     if not changed:
         return body, headers, parsed_payload
 
+    # Log final state for debugging
+    try:
+        logger.debug("Final merged capabilities: %s", json.dumps(parsed_payload.get("capabilities"), indent=2))
+    except Exception:
+        logger.debug("Final merged capabilities (non-JSON-serializable)")
+
+    # Recalculate body and headers
     new_body = json.dumps(parsed_payload).encode()
     headers = dict(headers)
     headers.pop("content-length", None)
+
     return new_body, headers, parsed_payload
 
 
@@ -250,12 +277,15 @@ async def forward_request(request: Request, path: str):
     if not session_id:
         resources = target_node.get("resources")
         session_data = None
+        logger.info(f"resources is {resources}")
         if isinstance(resources, dict):
             session_data = resources.get("session_data")
+        logger.info(f"session_data is {session_data}")
         if isinstance(session_data, dict):
             body, headers, payload = _merge_session_capabilities(
                 body, headers, session_data, payload=payload
             )
+        logger.info(f"body is {body}")
 
     async with httpx.AsyncClient(timeout=None) as client:
         resp = await client.request(
