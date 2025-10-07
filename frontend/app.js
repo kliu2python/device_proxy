@@ -72,9 +72,21 @@ function setTableLoading(isLoading) {
 }
 
 function serializeNode(node) {
-  const payload = node.resources.session_data;
+  const endpoint = formatEndpoint(node);
+  const sessionData = node.resources?.session_data ?? {};
+  const status = deriveStatus(node);
 
-  return JSON.stringify(payload, null, 2);
+  const sections = [
+    `Node: ${node.id || 'Unknown node'}`,
+    `Platform: ${node.platform || 'Unknown platform'}`,
+    `Status: ${status}`,
+    `Endpoint: ${endpoint}`,
+    '',
+    'Session data:',
+    JSON.stringify(sessionData, null, 2),
+  ];
+
+  return sections.join('\n');
 }
 
 function closeDetailsModal() {
@@ -158,7 +170,7 @@ if (detailsModal) {
 function renderRows(nodes) {
   tableBody.innerHTML = '';
   if (nodes.length === 0) {
-    tableBody.innerHTML = '<tr><td colspan="5" class="empty-state">No nodes registered yet.</td></tr>';
+    tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">No nodes registered yet.</td></tr>';
     return;
   }
 
@@ -175,17 +187,17 @@ function renderRows(nodes) {
 
     const sessionsLabel = `${Number(node.active_sessions ?? 0)} / ${Number(node.max_sessions ?? 1)}`;
 
+    const status = deriveStatus(node);
+    const isDetailsAvailable = status === 'online';
+
     tr.innerHTML = `
       <td>
         <div class="node-name">${node.id || 'Unknown node'}</div>
         <div class="node-meta">${node.platform || ''}</div>
       </td>
-      <td>
-        <code class="endpoint">${formatEndpoint(node)}</code>
-      </td>
       <td>${sessionsLabel}</td>
       <td>
-        <span class="badge" data-status="${deriveStatus(node)}">${deriveStatus(node)}</span>
+        <span class="badge" data-status="${status}">${status}</span>
       </td>
       <td>
         <button class="action-button" data-show="${node.id}">Show details</button>
@@ -193,7 +205,14 @@ function renderRows(nodes) {
     `;
 
     const trigger = tr.querySelector('button[data-show]');
-    trigger.addEventListener('click', () => showNodeDetails(node, trigger));
+
+    if (!isDetailsAvailable) {
+      trigger.setAttribute('disabled', 'true');
+      trigger.setAttribute('aria-disabled', 'true');
+      trigger.title = 'Session details are only available when the node is online.';
+    } else {
+      trigger.addEventListener('click', () => showNodeDetails(node, trigger));
+    }
     tableBody.appendChild(tr);
   }
 }
@@ -221,7 +240,7 @@ async function loadNodes({ userInitiated = false } = {}) {
   const shouldShowOverlay = !isInitialLoad || userInitiated;
 
   if (!hasExistingRows && isInitialLoad) {
-    tableBody.innerHTML = '<tr><td colspan="5" class="empty-state">Loading nodes...</td></tr>';
+    tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">Loading nodes...</td></tr>';
   } else if (shouldShowOverlay) {
     setTableLoading(true);
   }
@@ -235,7 +254,7 @@ async function loadNodes({ userInitiated = false } = {}) {
     console.error('Failed to load nodes', error);
     if (!hasExistingRows) {
       tableBody.innerHTML =
-        '<tr><td colspan="5" class="empty-state">Unable to load nodes. Please try again.</td></tr>';
+        '<tr><td colspan="4" class="empty-state">Unable to load nodes. Please try again.</td></tr>';
     }
     showToast('Failed to load nodes');
   } finally {

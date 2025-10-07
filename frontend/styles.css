@@ -296,6 +296,17 @@ body {
   transform: translateY(0);
 }
 
+.action-button[disabled],
+.action-button[disabled]:hover,
+.action-button[disabled]:focus-visible {
+  background: var(--border);
+  border-color: var(--border);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
 .empty-state {
   text-align: center;
   color: var(--text-muted);
