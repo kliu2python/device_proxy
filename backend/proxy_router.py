@@ -1,11 +1,19 @@
 import json
 import logging
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import httpx
 import redis.asyncio as aioredis
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
+from pydantic import BaseModel, Field
+
+from backend.client import create_proxy_webdriver
+
+try:  # pragma: no cover - optional dependency guard
+    from appium.options.common import AppiumOptions
+except ImportError:  # pragma: no cover
+    AppiumOptions = None
 
 router = APIRouter()
 redis_client = aioredis.from_url("redis://10.160.13.16:6379/0", decode_responses=True)
@@ -295,6 +303,59 @@ async def forward_request(request: Request, path: str):
     return resp.content, resp.status_code, resp.headers, target_node_id or target_node.get("id"), session_id
 
 
+class WebDriverRequest(BaseModel):
+    """Payload schema for creating a proxy WebDriver via the API."""
+
+    proxy_server: str
+    desired_capabilities: Optional[Dict[str, Any]] = None
+    options: Optional[Dict[str, Any]] = None
+    keep_alive: bool = True
+    remote_kwargs: Dict[str, Any] = Field(default_factory=dict)
+
+
+def _build_appium_options(payload: Optional[Dict[str, Any]]):
+    """Return an ``AppiumOptions`` instance for the provided payload if possible."""
+
+    if payload is None:
+        return None
+
+    if AppiumOptions is None:
+        raise HTTPException(
+            status_code=500,
+            detail="Appium client library is not available on the proxy server.",
+        )
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="'options' payload must be an object")
+
+    options = AppiumOptions()
+    options.load_capabilities(payload)
+    return options
+
+
+def _serialise_webdriver(driver):
+    """Create a serialisable payload describing a WebDriver instance."""
+
+    session_id = getattr(driver, "session_id", None)
+    command_executor_url = None
+    command_executor = getattr(driver, "command_executor", None)
+    if command_executor is not None:
+        command_executor_url = getattr(command_executor, "_url", None)
+
+    capabilities: Optional[Dict[str, Any]] = None
+    try:
+        capabilities = driver.capabilities  # type: ignore[attr-defined]
+    except Exception:  # pragma: no cover - defensive access
+        capabilities = None
+
+    return {
+        "repr": repr(driver),
+        "session_id": session_id,
+        "capabilities": capabilities,
+        "command_executor": command_executor_url,
+    }
+
+
 @router.api_route("/wd/hub/session", methods=["POST", "OPTIONS"])
 async def create_session(request: Request):
     content, status, headers, node_id, _ = await forward_request(request, "session")
@@ -330,3 +391,25 @@ async def selenium_create_session(request: Request):
             await _update_node_session_count(node_id, 1)
 
     return Response(content=content, status_code=status, headers=dict(headers))
+
+
+@router.post("/webdriver")
+async def create_webdriver_endpoint(payload: WebDriverRequest):
+    """Create a WebDriver instance using the proxy helper and serialise it."""
+
+    try:
+        options = _build_appium_options(payload.options)
+        driver = create_proxy_webdriver(
+            payload.proxy_server,
+            desired_capabilities=payload.desired_capabilities,
+            options=options,
+            keep_alive=payload.keep_alive,
+            **payload.remote_kwargs,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover - propagate runtime error as HTTP error
+        logger.exception("Failed to create proxy WebDriver")
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return _serialise_webdriver(driver)
