@@ -188,18 +188,6 @@ def _classify_device_pools(node: Dict) -> Set[str]:
 
 
 def _build_connection_payload(node: Dict) -> Dict:
-    protocol = _normalise_str(node.get("protocol")) or "http"
-    host = node.get("host")
-    port = node.get("port")
-    path = node.get("path") or "/wd/hub"
-
-    if isinstance(path, str) and not path.startswith("/"):
-        path = f"/{path}"
-
-    endpoint = None
-    if host and port:
-        endpoint = f"{protocol}://{host}:{port}{path}"
-
     resources = node.get("resources")
     session_data = {}
     if isinstance(resources, dict):
@@ -207,22 +195,7 @@ def _build_connection_payload(node: Dict) -> Dict:
         if not isinstance(session_data, dict):
             session_data = {}
 
-    payload = {
-        "id": node.get("id"),
-        "status": node.get("status"),
-        "platform": node.get("platform"),
-        "type": node.get("type"),
-        "host": host,
-        "port": port,
-        "protocol": protocol,
-        "path": path,
-        "endpoint": endpoint,
-        "max_sessions": node.get("max_sessions"),
-        "active_sessions": node.get("active_sessions"),
-        "session_data": session_data,
-    }
-
-    return payload
+    return dict(session_data)
 
 
 def _rows_from_csv(csv_path: Path) -> Iterable[Dict[str, str]]:
