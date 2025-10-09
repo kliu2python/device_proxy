@@ -4,7 +4,7 @@ import json
 import logging
 import uuid
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, List, Optional, Set
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, HTTPException
@@ -32,6 +32,8 @@ CSV_TEMPLATE_HEADERS = [
     "device_name",
     "resources",
 ]
+
+SUPPORTED_DEVICE_POOLS = {"ios", "android", "android-emulator", "web"}
 
 
 class NodeRegistrationError(Exception):
@@ -118,6 +120,109 @@ async def _store_node(node: Dict) -> Dict:
         node.get("max_sessions"),
     )
     return node
+
+
+def _normalise_str(value: Optional[str]) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    value = value.strip().lower()
+    return value or None
+
+
+def _node_is_available(node: Dict) -> bool:
+    status = _normalise_str(node.get("status")) or "offline"
+    if status != "online":
+        return False
+
+    try:
+        max_sessions = int(node.get("max_sessions", 1) or 1)
+    except (TypeError, ValueError):
+        max_sessions = 1
+
+    try:
+        active_sessions = int(node.get("active_sessions", 0) or 0)
+    except (TypeError, ValueError):
+        active_sessions = 0
+
+    if max_sessions <= 0:
+        return False
+
+    if active_sessions >= max_sessions:
+        return False
+
+    return True
+
+
+def _classify_device_pools(node: Dict) -> Set[str]:
+    values: List[str] = []
+    for key in ("type", "platform", "id"):
+        normalised = _normalise_str(node.get(key))
+        if normalised:
+            values.append(normalised)
+
+    resources = node.get("resources")
+    if isinstance(resources, dict):
+        tags = resources.get("tags")
+        if isinstance(tags, list):
+            for tag in tags:
+                normalised = _normalise_str(tag)
+                if normalised:
+                    values.append(normalised)
+
+    matched: Set[str] = set()
+
+    for pool in SUPPORTED_DEVICE_POOLS:
+        if pool in values:
+            matched.add(pool)
+
+    if any(value == "ios" for value in values):
+        matched.add("ios")
+    if any(value == "android" for value in values):
+        matched.add("android")
+    if any(value and "emulator" in value for value in values):
+        matched.add("android-emulator")
+    if any(value in {"web", "browser", "selenium"} for value in values if value):
+        matched.add("web")
+
+    return matched
+
+
+def _build_connection_payload(node: Dict) -> Dict:
+    protocol = _normalise_str(node.get("protocol")) or "http"
+    host = node.get("host")
+    port = node.get("port")
+    path = node.get("path") or "/wd/hub"
+
+    if isinstance(path, str) and not path.startswith("/"):
+        path = f"/{path}"
+
+    endpoint = None
+    if host and port:
+        endpoint = f"{protocol}://{host}:{port}{path}"
+
+    resources = node.get("resources")
+    session_data = {}
+    if isinstance(resources, dict):
+        session_data = resources.get("session_data") or {}
+        if not isinstance(session_data, dict):
+            session_data = {}
+
+    payload = {
+        "id": node.get("id"),
+        "status": node.get("status"),
+        "platform": node.get("platform"),
+        "type": node.get("type"),
+        "host": host,
+        "port": port,
+        "protocol": protocol,
+        "path": path,
+        "endpoint": endpoint,
+        "max_sessions": node.get("max_sessions"),
+        "active_sessions": node.get("active_sessions"),
+        "session_data": session_data,
+    }
+
+    return payload
 
 
 def _rows_from_csv(csv_path: Path) -> Iterable[Dict[str, str]]:
@@ -253,6 +358,42 @@ async def list_nodes():
     nodes = await redis_client.hgetall("nodes")
     logger.debug("Listing %d nodes", len(nodes))
     return {node_id: json.loads(data) for node_id, data in nodes.items()}
+
+
+@router.get("/nodes/available")
+async def list_available_nodes(device_type: Optional[str] = None):
+    nodes = await redis_client.hgetall("nodes")
+    logger.debug("Listing available nodes; total cached nodes=%d", len(nodes))
+
+    available: Dict[str, List[Dict]] = {pool: [] for pool in SUPPORTED_DEVICE_POOLS}
+
+    for node_id, node_data in nodes.items():
+        try:
+            node = json.loads(node_data)
+        except json.JSONDecodeError:
+            logger.warning("Skipping malformed node data for %s while listing availability", node_id)
+            continue
+
+        if not _node_is_available(node):
+            continue
+
+        pools = _classify_device_pools(node)
+        if not pools:
+            continue
+
+        payload = _build_connection_payload(node)
+
+        for pool in pools:
+            if pool in available:
+                available[pool].append(dict(payload))
+
+    if device_type is not None:
+        requested = _normalise_str(device_type)
+        if not requested or requested not in SUPPORTED_DEVICE_POOLS:
+            raise HTTPException(status_code=400, detail="Unsupported device type requested")
+        return {requested: available.get(requested, [])}
+
+    return available
 
 @router.get("/status/{node_id}")
 async def node_status(node_id: str):
