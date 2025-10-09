@@ -88,37 +88,53 @@ def _parse_session_payload(body: bytes) -> Optional[Dict]:
     return payload
 
 
-def _extract_requested_platform(payload: Dict) -> Optional[str]:
-    """Return the requested platform name from a session payload if present."""
+def _extract_capability_value(payload: Dict, capability_keys: Tuple[str, ...]) -> Optional[str]:
+    """Return the first matching capability value from a session payload."""
 
-    def _platform_from_caps(caps: Optional[Dict]) -> Optional[str]:
+    def _value_from_caps(caps: Optional[Dict]) -> Optional[str]:
         if not isinstance(caps, dict):
             return None
-        for key in ("platformName", "appium:platformName"):
+        for key in capability_keys:
             value = caps.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
+            if isinstance(value, str):
+                value = value.strip()
+                if value:
+                    return value
         return None
 
     capabilities = payload.get("capabilities")
     if isinstance(capabilities, dict):
-        platform = _platform_from_caps(capabilities.get("alwaysMatch"))
-        if platform:
-            return platform
+        value = _value_from_caps(capabilities.get("alwaysMatch"))
+        if value:
+            return value
 
         first_match = capabilities.get("firstMatch")
         if isinstance(first_match, list):
             for item in first_match:
-                platform = _platform_from_caps(item)
-                if platform:
-                    return platform
+                value = _value_from_caps(item)
+                if value:
+                    return value
 
     desired_caps = payload.get("desiredCapabilities")
     if isinstance(desired_caps, dict):
-        platform = _platform_from_caps(desired_caps)
-        if platform:
-            return platform
+        value = _value_from_caps(desired_caps)
+        if value:
+            return value
 
+    return None
+
+
+def _extract_requested_platform(payload: Dict) -> Optional[str]:
+    """Return the requested platform name from a session payload if present."""
+
+    return _extract_capability_value(payload, ("platformName", "appium:platformName"))
+
+
+def _normalise_str(value: Optional[str]) -> Optional[str]:
+    if isinstance(value, str):
+        value = value.strip()
+        if value:
+            return value
     return None
 
 
@@ -213,6 +229,8 @@ async def forward_request(request: Request, path: str):
 
     payload: Optional[Dict] = None
     requested_platform: Optional[str] = None
+    requested_device_name: Optional[str] = None
+    requested_udid: Optional[str] = None
 
     if not session_id and request.method == "POST":
         payload = _parse_session_payload(body)
@@ -220,6 +238,12 @@ async def forward_request(request: Request, path: str):
             platform_name = _extract_requested_platform(payload)
             if platform_name:
                 requested_platform = platform_name.lower()
+            device_name = _extract_capability_value(payload, ("appium:deviceName", "deviceName"))
+            if device_name:
+                requested_device_name = device_name.lower()
+            udid = _extract_capability_value(payload, ("appium:udid", "udid"))
+            if udid:
+                requested_udid = udid.lower()
 
     if session_id:
         target_node_id = await redis_client.hget(SESSION_MAP_KEY, session_id)
@@ -250,11 +274,40 @@ async def forward_request(request: Request, path: str):
             max_sessions = int(node.get("max_sessions", 1))
             active_sessions = int(node.get("active_sessions", 0))
 
+            resources = node.get("resources")
+            session_data = None
+            if isinstance(resources, dict):
+                session_data = resources.get("session_data")
+                if not isinstance(session_data, dict):
+                    session_data = None
+
             if requested_platform:
                 node_platform = (node.get("platform") or "").strip()
                 if not node_platform:
                     continue
                 if node_platform.lower() != requested_platform:
+                    continue
+
+            if requested_udid:
+                node_udid = _normalise_str(node.get("udid"))
+                if not node_udid and session_data:
+                    node_udid = _normalise_str(
+                        session_data.get("appium:udid") or session_data.get("udid")
+                    )
+                if not node_udid or node_udid.lower() != requested_udid:
+                    continue
+
+            if requested_device_name:
+                node_device_name = _normalise_str(
+                    node.get("deviceName") or node.get("device_name")
+                )
+                if not node_device_name and session_data:
+                    node_device_name = _normalise_str(
+                        session_data.get("appium:deviceName")
+                        or session_data.get("deviceName")
+                        or session_data.get("device_name")
+                    )
+                if not node_device_name or node_device_name.lower() != requested_device_name:
                     continue
 
             if request.method == "DELETE" or (status == "online" and active_sessions < max_sessions):
