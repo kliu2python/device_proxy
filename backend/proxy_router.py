@@ -177,6 +177,77 @@ def _normalise_capability_value(value: Any) -> Optional[str]:
     return None
 
 
+def _node_is_likely_emulator(node: Dict, session_data: Optional[Dict]) -> bool:
+    """Best-effort heuristic to identify emulator nodes.
+
+    A node is considered an emulator when one of the following is true:
+    - Its ``type`` metadata explicitly marks it as an emulator.
+    - It contains tags mentioning emulator usage.
+    - It advertises an AVD value but no UDID (common for Android emulators).
+    """
+
+    node_type = (node.get("type") or "").strip().lower()
+    if "emulator" in node_type:
+        return True
+
+    resources = node.get("resources")
+    if isinstance(resources, dict):
+        tags = resources.get("tags")
+        if isinstance(tags, list):
+            for tag in tags:
+                if isinstance(tag, str) and "emulator" in tag.lower():
+                    return True
+
+    session_data = session_data or {}
+
+    has_avd = any(
+        _normalise_str(session_data.get(key))
+        for key in ("appium:avd", "avd")
+    )
+    has_udid = any(
+        _normalise_str(source)
+        for source in (
+            node.get("udid"),
+            session_data.get("appium:udid"),
+            session_data.get("udid"),
+        )
+    )
+
+    return bool(has_avd and not has_udid)
+
+
+def _node_value_for_capability(
+    node: Dict, session_data: Dict, key: str
+) -> Optional[Any]:
+    if key in session_data:
+        return session_data[key]
+
+    if key == "udid":
+        return node.get("udid")
+
+    if key in {"deviceName", "device_name"}:
+        return node.get("deviceName") or node.get("device_name")
+
+    if key in {"appium:deviceName"}:
+        return (
+            session_data.get("appium:deviceName")
+            or session_data.get("deviceName")
+            or session_data.get("device_name")
+        )
+
+    if key in {"appium:avd", "avd"}:
+        # Session data takes priority, but some nodes may expose the AVD as
+        # top-level metadata or via resource hints.
+        resources = node.get("resources")
+        if isinstance(resources, dict):
+            direct_avd = resources.get("avd")
+            if direct_avd is not None:
+                return direct_avd
+        return node.get("avd")
+
+    return None
+
+
 def _node_matches_session_requirements(
     node: Dict, session_data: Optional[Dict], requested_caps: Dict[str, Any]
 ) -> bool:
@@ -192,6 +263,13 @@ def _node_matches_session_requirements(
         ("appium:deviceName", "deviceName", "device_name"),
         ("appium:avd", "avd"),
     ]
+
+    emulator_requested = any(
+        requested_caps.get(key) not in (None, "")
+        for key in ("appium:avd", "avd")
+    )
+    if emulator_requested and not _node_is_likely_emulator(node, session_data):
+        return False
 
     for group in key_groups:
         requested_value: Optional[Any] = None
@@ -209,14 +287,7 @@ def _node_matches_session_requirements(
 
         match_found = False
         for key in group:
-            node_value = None
-            if key in session_data:
-                node_value = session_data[key]
-            elif key == "udid":
-                node_value = node.get("udid")
-            elif key in {"deviceName", "device_name"}:
-                node_value = node.get("deviceName") or node.get("device_name")
-
+            node_value = _node_value_for_capability(node, session_data, key)
             if node_value is None:
                 continue
 
