@@ -77,6 +77,59 @@ def _normalise_numeric(value: Optional[str], default: int) -> int:
         raise NodeRegistrationError(f"Invalid numeric value '{value}'") from exc
 
 
+def _session_value_as_str(session_data: Dict, *keys: str) -> Optional[str]:
+    for key in keys:
+        if key not in session_data:
+            continue
+        value = session_data.get(key)
+        if isinstance(value, str):
+            value = value.strip()
+            if value:
+                return value
+        elif isinstance(value, (int, float)):
+            return str(value)
+    return None
+
+
+def _populate_metadata_from_session(node: Dict) -> None:
+    resources = node.get("resources")
+    if not isinstance(resources, dict):
+        return
+
+    session_data = resources.get("session_data")
+    if not isinstance(session_data, dict):
+        return
+
+    if not _strip_or_none(node.get("platform")):
+        platform = _session_value_as_str(session_data, "platformName", "appium:platformName")
+        if platform:
+            node["platform"] = platform
+
+    if not _strip_or_none(node.get("platform_version")):
+        version = _session_value_as_str(
+            session_data, "platformVersion", "appium:platformVersion"
+        )
+        if version:
+            node["platform_version"] = version
+
+    device_name = node.get("device_name") or node.get("deviceName")
+    if not _strip_or_none(device_name):
+        name = _session_value_as_str(
+            session_data,
+            "device_name",
+            "deviceName",
+            "appium:deviceName",
+        )
+        if name:
+            node.setdefault("deviceName", name)
+            node.setdefault("device_name", name)
+
+    if not _strip_or_none(node.get("udid")):
+        udid = _session_value_as_str(session_data, "udid", "appium:udid")
+        if udid:
+            node["udid"] = udid
+
+
 def _normalise_node_payload(raw_node: Dict) -> Dict:
     node = dict(raw_node)
     node_id = node.get("id") or str(uuid.uuid4())
@@ -100,6 +153,8 @@ def _normalise_node_payload(raw_node: Dict) -> Dict:
         except json.JSONDecodeError:
             logger.warning("Failed to decode resources JSON for node %s", node_id)
             node.pop("resources", None)
+
+    _populate_metadata_from_session(node)
 
     return node
 

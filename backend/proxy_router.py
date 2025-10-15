@@ -130,12 +130,40 @@ def _extract_requested_platform(payload: Dict) -> Optional[str]:
     return _extract_capability_value(payload, ("platformName", "appium:platformName"))
 
 
+def _extract_requested_platform_version(payload: Dict) -> Optional[str]:
+    """Return the requested platform version, normalised for comparison."""
+
+    value = _extract_capability_value(payload, ("platformVersion", "appium:platformVersion"))
+    return _normalise_version(value)
+
+
+def _extract_requested_avd(payload: Dict) -> Optional[str]:
+    """Return the requested Android Virtual Device name if present."""
+
+    value = _extract_capability_value(payload, ("appium:avd", "avd"))
+    value = _normalise_str(value)
+    return value.lower() if value else None
+
+
 def _normalise_str(value: Optional[str]) -> Optional[str]:
     if isinstance(value, str):
         value = value.strip()
         if value:
             return value
     return None
+
+
+def _normalise_version(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        value = str(value)
+    value = value.strip()
+    if not value:
+        return None
+    while value.endswith(".0"):
+        value = value[:-2]
+    return value.lower()
 
 
 def _merge_session_capabilities(
@@ -231,6 +259,8 @@ async def forward_request(request: Request, path: str):
     requested_platform: Optional[str] = None
     requested_device_name: Optional[str] = None
     requested_udid: Optional[str] = None
+    requested_avd: Optional[str] = None
+    requested_platform_version: Optional[str] = None
 
     if not session_id and request.method == "POST":
         payload = _parse_session_payload(body)
@@ -244,6 +274,12 @@ async def forward_request(request: Request, path: str):
             udid = _extract_capability_value(payload, ("appium:udid", "udid"))
             if udid:
                 requested_udid = udid.lower()
+            avd = _extract_requested_avd(payload)
+            if avd:
+                requested_avd = avd
+            platform_version = _extract_requested_platform_version(payload)
+            if platform_version:
+                requested_platform_version = platform_version
 
     if session_id:
         target_node_id = await redis_client.hget(SESSION_MAP_KEY, session_id)
@@ -282,10 +318,13 @@ async def forward_request(request: Request, path: str):
                     session_data = None
 
             if requested_platform:
-                node_platform = (node.get("platform") or "").strip()
-                if not node_platform:
-                    continue
-                if node_platform.lower() != requested_platform:
+                node_platform = _normalise_str(node.get("platform"))
+                if not node_platform and session_data:
+                    node_platform = _normalise_str(
+                        session_data.get("platformName")
+                        or session_data.get("appium:platformName")
+                    )
+                if not node_platform or node_platform.lower() != requested_platform:
                     continue
 
             if requested_udid:
@@ -308,6 +347,34 @@ async def forward_request(request: Request, path: str):
                         or session_data.get("device_name")
                     )
                 if not node_device_name or node_device_name.lower() != requested_device_name:
+                    continue
+
+            if requested_avd:
+                node_avd = _normalise_str(node.get("avd"))
+                if node_avd:
+                    node_avd = node_avd.lower()
+                if not node_avd and session_data:
+                    node_avd = _normalise_str(
+                        session_data.get("appium:avd") or session_data.get("avd")
+                    )
+                    if node_avd:
+                        node_avd = node_avd.lower()
+                if not node_avd or node_avd != requested_avd:
+                    continue
+
+            if requested_platform_version:
+                node_platform_version = _normalise_version(
+                    node.get("platform_version") or node.get("platformVersion")
+                )
+                if not node_platform_version and session_data:
+                    node_platform_version = _normalise_version(
+                        session_data.get("appium:platformVersion")
+                        or session_data.get("platformVersion")
+                    )
+                if (
+                    not node_platform_version
+                    or node_platform_version != requested_platform_version
+                ):
                     continue
 
             if request.method == "DELETE" or (status == "online" and active_sessions < max_sessions):
