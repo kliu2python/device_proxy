@@ -16,6 +16,7 @@ redis_client = aioredis.from_url("redis://10.160.13.16:6379/0", decode_responses
 logger = logging.getLogger(__name__)
 
 NODE_RESOURCES_CSV = Path(__file__).resolve().parent / "node_resources.csv"
+NODE_SESSION_COUNTS_KEY = "node_session_counts"
 CSV_TEMPLATE_HEADERS = [
     "id",
     "type",
@@ -112,6 +113,7 @@ async def _store_node(node: Dict) -> Dict:
         raise NodeRegistrationError(f"Physical device with UDID '{node['udid']}' is already registered.")
 
     await redis_client.hset("nodes", node["id"], json.dumps(node))
+    await redis_client.hset(NODE_SESSION_COUNTS_KEY, node["id"], node["active_sessions"])
     logger.info(
         "Registered/updated node %s at %s:%s with max_sessions=%s",
         node["id"],
@@ -323,6 +325,7 @@ async def unregister_node(node_id: str):
     deleted = await redis_client.hdel("nodes", node_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Node not found")
+    await redis_client.hdel(NODE_SESSION_COUNTS_KEY, node_id)
     logger.info("Unregistered node %s", node_id)
     return {"message": f"Node {node_id} unregistered"}
 
