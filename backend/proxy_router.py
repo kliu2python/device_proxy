@@ -249,7 +249,11 @@ def _node_value_for_capability(
 
 
 def _node_matches_session_requirements(
-    node: Dict, session_data: Optional[Dict], requested_caps: Dict[str, Any]
+    node: Dict,
+    session_data: Optional[Dict],
+    requested_caps: Dict[str, Any],
+    *,
+    node_identifier: Optional[str] = None,
 ) -> bool:
     """Ensure node session data aligns with explicit capability requests."""
 
@@ -269,6 +273,10 @@ def _node_matches_session_requirements(
         for key in ("appium:avd", "avd")
     )
     if emulator_requested and not _node_is_likely_emulator(node, session_data):
+        logger.debug(
+            "Node %s rejected: emulator requested but node not recognised as emulator",
+            node_identifier or node.get("id"),
+        )
         return False
 
     for group in key_groups:
@@ -297,6 +305,16 @@ def _node_matches_session_requirements(
                 break
 
         if not match_found:
+            logger.debug(
+                "Node %s rejected: capability %s mismatch (requested=%s, session_data=%s)",
+                node_identifier or node.get("id"),
+                group,
+                normalised_requested,
+                {
+                    key: _node_value_for_capability(node, session_data, key)
+                    for key in group
+                },
+            )
             return False
 
     return True
@@ -429,6 +447,14 @@ async def forward_request(request: Request, path: str):
             if udid:
                 requested_udid = udid.lower()
 
+        logger.debug(
+            "Incoming session request with capabilities: platform=%s device=%s udid=%s requested_caps=%s",
+            requested_platform,
+            requested_device_name,
+            requested_udid,
+            requested_caps,
+        )
+
     if session_id:
         target_node_id = await redis_client.hget(SESSION_MAP_KEY, session_id)
         if not target_node_id:
@@ -452,6 +478,7 @@ async def forward_request(request: Request, path: str):
             logger.error("No nodes available to process request %s %s", request.method, path)
             raise HTTPException(status_code=503, detail="No nodes available")
 
+        skip_reasons = []
         for node_id, node_data in nodes.items():
             node = json.loads(node_data)
             status = node.get("status")
@@ -465,14 +492,34 @@ async def forward_request(request: Request, path: str):
                 if not isinstance(session_data, dict):
                     session_data = None
 
-            if not _node_matches_session_requirements(node, session_data, requested_caps):
+            logger.debug(
+                "Evaluating node %s: status=%s active=%s/%s platform=%s session_data=%s",
+                node_id,
+                status,
+                active_sessions,
+                max_sessions,
+                node.get("platform"),
+                session_data,
+            )
+
+            if not _node_matches_session_requirements(
+                node, session_data, requested_caps, node_identifier=node_id
+            ):
+                skip_reasons.append((node_id, "session capability mismatch"))
                 continue
 
             if requested_platform:
                 node_platform = (node.get("platform") or "").strip()
                 if not node_platform:
+                    skip_reasons.append((node_id, "platform metadata missing"))
                     continue
                 if node_platform.lower() != requested_platform:
+                    skip_reasons.append(
+                        (
+                            node_id,
+                            f"platform mismatch (node={node_platform}, requested={requested_platform})",
+                        )
+                    )
                     continue
 
             if requested_udid:
@@ -481,7 +528,16 @@ async def forward_request(request: Request, path: str):
                     node_udid = _normalise_str(
                         session_data.get("appium:udid") or session_data.get("udid")
                     )
-                if not node_udid or node_udid.lower() != requested_udid:
+                if not node_udid:
+                    skip_reasons.append((node_id, "UDID metadata missing"))
+                    continue
+                if node_udid.lower() != requested_udid:
+                    skip_reasons.append(
+                        (
+                            node_id,
+                            f"UDID mismatch (node={node_udid.lower()}, requested={requested_udid})",
+                        )
+                    )
                     continue
 
             if requested_device_name:
@@ -494,15 +550,30 @@ async def forward_request(request: Request, path: str):
                         or session_data.get("deviceName")
                         or session_data.get("device_name")
                     )
-                if not node_device_name or node_device_name.lower() != requested_device_name:
+                if not node_device_name:
+                    skip_reasons.append((node_id, "device name metadata missing"))
+                    continue
+                if node_device_name.lower() != requested_device_name:
+                    skip_reasons.append(
+                        (
+                            node_id,
+                            f"device name mismatch (node={node_device_name.lower()}, requested={requested_device_name})",
+                        )
+                    )
                     continue
 
             if request.method == "DELETE" or (status == "online" and active_sessions < max_sessions):
                 target_node = node
                 target_node_id = node_id
+                logger.debug(
+                    "Selected node %s for request %s %s", node_id, request.method, path
+                )
                 break
 
         if not target_node:
+            if skip_reasons:
+                for node_id, reason in skip_reasons:
+                    logger.info("Node %s skipped: %s", node_id, reason)
             logger.info("All nodes busy when processing %s %s", request.method, path)
             raise HTTPException(status_code=503, detail="No nodes available for new session")
 
