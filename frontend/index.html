@@ -12,16 +12,28 @@
       <div class="branding">
         <h1>device proxy nodes</h1>
       </div>
+      <div class="page-header__meta" aria-live="polite">
+        <span class="last-updated-label">Last updated</span>
+        <span id="summary-updated" class="last-updated-value">--</span>
+      </div>
       <div class="actions">
         <button id="refresh-button" class="button">Refresh</button>
         <button id="admin-tools-trigger" class="button button--secondary" type="button">
           Add node
         </button>
+        <button
+          id="admin-logout-button"
+          class="button button--secondary"
+          type="button"
+          hidden
+        >
+          Sign out
+        </button>
       </div>
     </header>
 
     <main class="page-content">
-      <section class="summary" aria-label="Node summary">
+      <section class="summary" aria-label="Node summary and filters">
         <div class="summary-card card" data-status="total">
           <span class="summary-label">Total</span>
           <span id="summary-total" class="summary-value">0</span>
@@ -38,66 +50,61 @@
           <span class="summary-label">Offline</span>
           <span id="summary-offline" class="summary-value">0</span>
         </div>
-        <div class="summary-card card last-updated">
-          <span class="summary-label">Last updated</span>
-          <span id="summary-updated" class="summary-value">--</span>
-        </div>
-      </section>
-
-      <section class="filters" aria-label="Node filters">
-        <div class="filters-dropdown">
-          <button
-            type="button"
-            class="filters-toggle button button--secondary"
-            id="filters-toggle"
-            aria-expanded="false"
-            aria-controls="filters-menu"
-          >
-            Filters
-          </button>
-          <div id="filters-menu" class="filters-menu card" hidden>
-            <form id="filters-form" class="filters-form">
-              <label class="filter-field">
-                <span class="filter-label">Search</span>
-                <input
-                  id="filter-search"
-                  name="search"
-                  type="search"
-                  placeholder="Node ID, device name or host"
-                />
-              </label>
-              <label class="filter-field">
-                <span class="filter-label">Platform</span>
-                <select id="filter-platform" name="platform">
-                  <option value="">All</option>
-                  <option value="ios">iOS</option>
-                  <option value="android">Android</option>
-                  <option value="android-emulator">Android Emulator</option>
-                  <option value="web">Web</option>
-                </select>
-              </label>
-              <label class="filter-field">
-                <span class="filter-label">Platform version</span>
-                <input
-                  id="filter-platform-version"
-                  name="platform_version"
-                  type="text"
-                  placeholder="e.g. 17.5"
-                />
-              </label>
-              <label class="filter-field">
-                <span class="filter-label">Status</span>
-                <select id="filter-status" name="status">
-                  <option value="">All</option>
-                  <option value="online">Online</option>
-                  <option value="busy">Busy</option>
-                  <option value="offline">Offline</option>
-                </select>
-              </label>
-              <div class="filters-actions">
-                <button type="button" id="filters-reset" class="link-button">Reset filters</button>
-              </div>
-            </form>
+        <div class="summary-card card summary-card--filters" aria-label="Node filters">
+          <div class="filters-dropdown">
+            <button
+              type="button"
+              class="filters-toggle button button--secondary"
+              id="filters-toggle"
+              aria-expanded="false"
+              aria-controls="filters-menu"
+            >
+              Filters
+            </button>
+            <div id="filters-menu" class="filters-menu card" hidden>
+              <form id="filters-form" class="filters-form">
+                <label class="filter-field">
+                  <span class="filter-label">Search</span>
+                  <input
+                    id="filter-search"
+                    name="search"
+                    type="search"
+                    placeholder="Node ID, device name or host"
+                  />
+                </label>
+                <label class="filter-field">
+                  <span class="filter-label">Platform</span>
+                  <select id="filter-platform" name="platform">
+                    <option value="">All</option>
+                    <option value="ios">iOS</option>
+                    <option value="android">Android</option>
+                    <option value="android-emulator">Android Emulator</option>
+                    <option value="web">Web</option>
+                  </select>
+                </label>
+                <label class="filter-field">
+                  <span class="filter-label">Platform version</span>
+                  <input
+                    id="filter-platform-version"
+                    name="platform_version"
+                    type="text"
+                    placeholder="e.g. 17.5"
+                  />
+                </label>
+                <label class="filter-field">
+                  <span class="filter-label">Status</span>
+                  <select id="filter-status" name="status">
+                    <option value="">All</option>
+                    <option value="online">Online</option>
+                    <option value="busy">Busy</option>
+                    <option value="offline">Offline</option>
+                  </select>
+                </label>
+                <div class="filters-actions">
+                  <button type="button" id="filters-reset" class="link-button">Reset filters</button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       </section>

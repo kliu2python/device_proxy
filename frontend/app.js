@@ -28,6 +28,7 @@ const adminPasswordInput = document.getElementById('admin-password');
 const adminLoginFeedback = document.getElementById('admin-login-feedback');
 const adminLoginSubmit = document.getElementById('admin-login-submit');
 const adminLockButton = document.getElementById('admin-lock-button');
+const adminLogoutButton = document.getElementById('admin-logout-button');
 const adminModal = document.getElementById('admin-modal');
 const adminLoginPanel = document.getElementById('admin-login-panel');
 const adminToolsPanel = document.getElementById('admin-tools-panel');
@@ -201,12 +202,23 @@ function closeAdminModal({ restoreFocus = true } = {}) {
 }
 
 function refreshAdminDependentUi() {
+  updateAdminControlsVisibility();
+
   if (!tableBody) {
     return;
   }
 
   const filtered = applyFilters(allNodes);
   renderRows(filtered);
+}
+
+function updateAdminControlsVisibility() {
+  if (!adminLogoutButton) {
+    return;
+  }
+
+  const shouldShow = isAdminUnlocked && Boolean(adminToken);
+  adminLogoutButton.hidden = !shouldShow;
 }
 
 function lockAdminTools({
@@ -290,6 +302,19 @@ function unlockAdminTools(token, { notify = true } = {}) {
 
   if (notify) {
     showToast('Admin tools unlocked. Use “Add node” to manage nodes.');
+  }
+}
+
+function handleAdminLogout({ focusLogin = isAdminRoute, toast = 'Signed out of admin tools.' } = {}) {
+  lockAdminTools({
+    notify: false,
+    message: 'Admin access locked. Enter your credentials to continue.',
+    state: 'info',
+    focusLogin,
+  });
+
+  if (toast) {
+    showToast(toast);
   }
 }
 
@@ -1047,11 +1072,13 @@ if (adminLoginForm) {
 
 if (adminLockButton) {
   adminLockButton.addEventListener('click', () => {
-    lockAdminTools({
-      notify: true,
-      message: 'Admin access locked. Enter your credentials to continue.',
-      state: 'info',
-    });
+    handleAdminLogout({ focusLogin: true, toast: 'Admin access required to manage nodes.' });
+  });
+}
+
+if (adminLogoutButton) {
+  adminLogoutButton.addEventListener('click', () => {
+    handleAdminLogout({ focusLogin: false, toast: 'Signed out of admin tools.' });
   });
 }
 
