@@ -19,6 +19,10 @@ const filtersToggle = document.getElementById('filters-toggle');
 const filtersMenu = document.getElementById('filters-menu');
 const filtersReset = document.getElementById('filters-reset');
 const filtersDropdown = document.querySelector('.filters-dropdown');
+const paginationContainer = document.getElementById('pagination');
+const paginationLabel = document.getElementById('pagination-label');
+const paginationPrev = document.getElementById('pagination-prev');
+const paginationNext = document.getElementById('pagination-next');
 const addNodeForm = document.getElementById('add-node-form');
 const addNodeSubmit = document.getElementById('add-node-submit');
 const adminToolsTrigger = document.getElementById('admin-tools-trigger');
@@ -46,11 +50,14 @@ let lastFocusedTrigger = null;
 let lastAdminModalTrigger = null;
 let isInitialLoad = true;
 let allNodes = [];
+let filteredNodes = [];
+let currentPage = 1;
 let adminToken = '';
 let isAdminUnlocked = false;
 let isFiltersMenuOpen = false;
 
 const REFRESH_INTERVAL = 15000;
+const PAGE_SIZE = 5;
 
 const STATUS_PRIORITY = ['busy', 'offline', 'online'];
 const API_BASE_URL = 'http://10.160.24.110:8080';
@@ -208,8 +215,10 @@ function refreshAdminDependentUi() {
     return;
   }
 
-  const filtered = applyFilters(allNodes);
-  renderRows(filtered);
+  filteredNodes = applyFilters(allNodes);
+  renderRows(filteredNodes);
+  updateSummary(allNodes, filteredNodes);
+  updateFiltersToggleState();
 }
 
 function updateAdminControlsVisibility() {
@@ -543,8 +552,49 @@ function setTableLoading(isLoading) {
   }
 }
 
+function updatePaginationControls({ totalItems, totalPages }) {
+  if (!paginationContainer) {
+    return;
+  }
+
+  const resolvedTotalPages = Math.max(1, totalPages || 1);
+  const resolvedCurrentPage = Math.min(Math.max(currentPage, 1), resolvedTotalPages);
+  const shouldHide = totalItems <= PAGE_SIZE;
+
+  paginationContainer.hidden = shouldHide;
+
+  if (paginationLabel) {
+    paginationLabel.textContent = `Page ${resolvedCurrentPage} of ${resolvedTotalPages}`;
+  }
+
+  if (paginationPrev) {
+    paginationPrev.disabled = shouldHide || resolvedCurrentPage <= 1;
+  }
+
+  if (paginationNext) {
+    paginationNext.disabled = shouldHide || resolvedCurrentPage >= resolvedTotalPages;
+  }
+}
+
+function goToPage(page) {
+  if (!Array.isArray(filteredNodes) || filteredNodes.length === 0) {
+    return;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(filteredNodes.length / PAGE_SIZE));
+  const targetPage = Math.min(Math.max(page, 1), totalPages);
+
+  if (targetPage === currentPage) {
+    return;
+  }
+
+  currentPage = targetPage;
+  renderRows(filteredNodes);
+}
+
 function handleFiltersChange() {
-  const filteredNodes = applyFilters(allNodes);
+  filteredNodes = applyFilters(allNodes);
+  currentPage = 1;
   renderRows(filteredNodes);
   updateSummary(allNodes, filteredNodes);
   updateFiltersToggleState();
@@ -920,11 +970,13 @@ if (adminModal) {
 
 function renderRows(nodes) {
   tableBody.innerHTML = '';
-  if (nodes.length === 0) {
+
+  if (!Array.isArray(nodes) || nodes.length === 0) {
     const emptyMessage = filtersAreActive()
       ? 'No nodes match the selected filters.'
       : 'No nodes registered yet.';
     tableBody.innerHTML = `<tr><td colspan="4" class="empty-state">${emptyMessage}</td></tr>`;
+    updatePaginationControls({ totalItems: 0, totalPages: 1 });
     return;
   }
 
@@ -936,7 +988,18 @@ function renderRows(nodes) {
     return (a.id || '').localeCompare(b.id || '');
   });
 
-  for (const node of sortedNodes) {
+  const totalPages = Math.max(1, Math.ceil(sortedNodes.length / PAGE_SIZE));
+  if (currentPage > totalPages) {
+    currentPage = totalPages;
+  } else if (currentPage < 1) {
+    currentPage = 1;
+  }
+
+  const startIndex = (currentPage - 1) * PAGE_SIZE;
+  const endIndex = startIndex + PAGE_SIZE;
+  const pageNodes = sortedNodes.slice(startIndex, endIndex);
+
+  for (const node of pageNodes) {
     const tr = document.createElement('tr');
 
     const sessionsLabel = `${Number(node.active_sessions ?? 0)} / ${Number(node.max_sessions ?? 1)}`;
@@ -984,6 +1047,8 @@ function renderRows(nodes) {
     }
     tableBody.appendChild(tr);
   }
+
+  updatePaginationControls({ totalItems: sortedNodes.length, totalPages });
 }
 
 function updateSummary(allNodesList, visibleNodesList = allNodesList) {
@@ -1026,9 +1091,12 @@ async function loadNodes({ userInitiated = false } = {}) {
   try {
     const nodeMap = await fetchJson('/nodes');
     allNodes = Object.values(nodeMap);
-    const filtered = applyFilters(allNodes);
-    renderRows(filtered);
-    updateSummary(allNodes, filtered);
+    filteredNodes = applyFilters(allNodes);
+    if (isInitialLoad) {
+      currentPage = 1;
+    }
+    renderRows(filteredNodes);
+    updateSummary(allNodes, filteredNodes);
     updateFiltersToggleState();
   } catch (error) {
     console.error('Failed to load nodes', error);
@@ -1079,6 +1147,18 @@ if (adminLockButton) {
 if (adminLogoutButton) {
   adminLogoutButton.addEventListener('click', () => {
     handleAdminLogout({ focusLogin: false, toast: 'Signed out of admin tools.' });
+  });
+}
+
+if (paginationPrev) {
+  paginationPrev.addEventListener('click', () => {
+    goToPage(currentPage - 1);
+  });
+}
+
+if (paginationNext) {
+  paginationNext.addEventListener('click', () => {
+    goToPage(currentPage + 1);
   });
 }
 
