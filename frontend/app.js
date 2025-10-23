@@ -10,6 +10,20 @@ const summaryBusy = document.getElementById('summary-busy');
 const summaryUpdated = document.getElementById('summary-updated');
 const detailsModal = document.getElementById('details-modal');
 const detailsBody = document.getElementById('details-modal-body');
+const filterForm = document.getElementById('filters-form');
+const filterSearch = document.getElementById('filter-search');
+const filterPlatform = document.getElementById('filter-platform');
+const filterPlatformVersion = document.getElementById('filter-platform-version');
+const filterStatus = document.getElementById('filter-status');
+const addNodeForm = document.getElementById('add-node-form');
+const addNodeSubmit = document.getElementById('add-node-submit');
+const adminLoginForm = document.getElementById('admin-login-form');
+const adminTokenInput = document.getElementById('admin-token');
+const adminLoginFeedback = document.getElementById('admin-login-feedback');
+const adminLoginSubmit = document.getElementById('admin-login-submit');
+const adminLoginCard = document.getElementById('admin-login-card');
+const adminToolsCard = document.getElementById('admin-tools-card');
+const adminLockButton = document.getElementById('admin-lock-button');
 const dismissTargets = detailsModal
   ? Array.from(detailsModal.querySelectorAll('[data-dismiss]'))
   : [];
@@ -18,16 +32,196 @@ const FOCUSABLE_SELECTOR =
 
 let lastFocusedTrigger = null;
 let isInitialLoad = true;
+let allNodes = [];
+let adminToken = '';
+let isAdminUnlocked = false;
 
 const REFRESH_INTERVAL = 15000;
 
 const STATUS_PRIORITY = ['busy', 'offline', 'online'];
+const API_BASE_URL = 'http://10.160.24.110:8080';
+const ADMIN_TOKEN_STORAGE_KEY = 'deviceProxyAdminToken';
 
-async function fetchJson(endpoint) {
-  const response = await fetch(`http://10.160.24.110:8080${endpoint}`);
-  if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+function normaliseText(value) {
+  if (typeof value !== 'string') {
+    return '';
   }
+  return value.trim().toLowerCase();
+}
+
+function getNodeTags(node) {
+  const tags = new Set();
+  const push = (value) => {
+    const normalised = normaliseText(value);
+    if (normalised) {
+      tags.add(normalised);
+    }
+  };
+
+  push(node.id);
+  push(node.type);
+  push(node.platform);
+  push(node.platform_version);
+  push(node.device_name);
+  push(node.udid);
+
+  const resources = node.resources;
+  if (resources && typeof resources === 'object') {
+    const resourceTags = Array.isArray(resources.tags) ? resources.tags : [];
+    resourceTags.forEach(push);
+
+    if (resources.session_data && typeof resources.session_data === 'object') {
+      Object.values(resources.session_data).forEach(push);
+    }
+  }
+
+  return tags;
+}
+
+function getStoredAdminToken() {
+  try {
+    return window.localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || '';
+  } catch (error) {
+    console.warn('Unable to access localStorage for admin token', error);
+    return '';
+  }
+}
+
+function storeAdminToken(token) {
+  try {
+    window.localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token);
+  } catch (error) {
+    console.warn('Unable to persist admin token', error);
+  }
+}
+
+function clearStoredAdminToken() {
+  try {
+    window.localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
+  } catch (error) {
+    console.warn('Unable to clear stored admin token', error);
+  }
+}
+
+function showAdminLoginFeedback(message, state = 'info') {
+  if (!adminLoginFeedback) {
+    return;
+  }
+  adminLoginFeedback.textContent = message;
+  adminLoginFeedback.dataset.state = state;
+}
+
+function lockAdminTools({ notify = false, message, state = 'info' } = {}) {
+  isAdminUnlocked = false;
+  adminToken = '';
+  clearStoredAdminToken();
+
+  if (adminToolsCard) {
+    adminToolsCard.hidden = true;
+  }
+  if (adminLoginCard) {
+    adminLoginCard.hidden = false;
+  }
+
+  if (adminTokenInput) {
+    adminTokenInput.value = '';
+  }
+
+  if (message) {
+    showAdminLoginFeedback(message, state);
+  } else if (adminLoginFeedback) {
+    adminLoginFeedback.textContent = '';
+    delete adminLoginFeedback.dataset.state;
+  }
+
+  if (notify) {
+    showToast('Admin access required to manage nodes.');
+  }
+}
+
+function unlockAdminTools(token, { notify = true } = {}) {
+  isAdminUnlocked = true;
+  adminToken = token;
+  storeAdminToken(token);
+
+  if (adminToolsCard) {
+    adminToolsCard.hidden = false;
+  }
+  if (adminLoginCard) {
+    adminLoginCard.hidden = true;
+  }
+
+  if (adminTokenInput) {
+    adminTokenInput.value = '';
+  }
+
+  if (adminLoginFeedback) {
+    adminLoginFeedback.textContent = '';
+    delete adminLoginFeedback.dataset.state;
+  }
+
+  if (notify) {
+    showToast('Admin tools unlocked.');
+  }
+}
+
+function ensureAdminAccess({ focus = true } = {}) {
+  if (isAdminUnlocked && adminToken) {
+    return true;
+  }
+  if (focus && adminLoginCard) {
+    adminLoginCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (adminTokenInput) {
+      adminTokenInput.focus();
+    }
+  }
+  if (!focus) {
+    return false;
+  }
+  showToast('Admin access required. Please unlock the admin tools.');
+  return false;
+}
+
+function fetchOptions(method = 'GET', payload, { requireAdmin = false, adminTokenOverride } = {}) {
+  const options = { method, headers: { Accept: 'application/json' } };
+  if (payload !== undefined) {
+    options.headers['Content-Type'] = 'application/json';
+    options.body = JSON.stringify(payload);
+  }
+
+  if (requireAdmin) {
+    const token = adminTokenOverride ?? adminToken;
+    if (token) {
+      options.headers['X-Admin-Token'] = token;
+    }
+  }
+
+  return options;
+}
+
+async function fetchJson(endpoint, options) {
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
+  if (!response.ok) {
+    let message = `Request failed: ${response.status}`;
+    let payload = null;
+    try {
+      payload = await response.json();
+      if (payload && typeof payload === 'object' && payload.detail) {
+        message = payload.detail;
+      }
+    } catch (error) {
+      // Ignore JSON parsing errors for unsuccessful responses
+    }
+    const error = new Error(message);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
+  }
+
+  if (response.status === 204) {
+    return null;
+  }
+
   return response.json();
 }
 
@@ -52,6 +246,78 @@ function deriveStatus(node) {
   return baseStatus;
 }
 
+function filtersAreActive() {
+  const search = normaliseText(filterSearch?.value || '');
+  const platform = normaliseText(filterPlatform?.value || '');
+  const platformVersion = normaliseText(filterPlatformVersion?.value || '');
+  const status = normaliseText(filterStatus?.value || '');
+  return Boolean(search || platform || platformVersion || status);
+}
+
+function applyFilters(nodes) {
+  if (!Array.isArray(nodes) || nodes.length === 0) {
+    return [];
+  }
+
+  const search = normaliseText(filterSearch?.value || '');
+  const platformFilter = normaliseText(filterPlatform?.value || '');
+  const platformVersionFilter = normaliseText(filterPlatformVersion?.value || '');
+  const statusFilter = normaliseText(filterStatus?.value || '');
+
+  return nodes.filter((node) => {
+    const status = deriveStatus(node);
+
+    if (statusFilter && status !== statusFilter) {
+      return false;
+    }
+
+    if (platformFilter) {
+      const tags = getNodeTags(node);
+      const matchesPlatform = Array.from(tags).some((tag) => {
+        if (tag === platformFilter) {
+          return true;
+        }
+        if (platformFilter === 'android-emulator') {
+          return tag.includes('emulator') || tag.includes('simulator');
+        }
+        return tag.includes(platformFilter);
+      });
+
+      if (!matchesPlatform) {
+        return false;
+      }
+    }
+
+    if (platformVersionFilter) {
+      const version = normaliseText(node.platform_version || '');
+      if (!version.includes(platformVersionFilter)) {
+        return false;
+      }
+    }
+
+    if (search) {
+      const fields = [
+        node.id,
+        node.device_name,
+        node.host,
+        node.udid,
+        node.platform,
+        node.platform_version,
+      ];
+      const matchesSearch = fields.some((field) => normaliseText(field).includes(search));
+
+      if (!matchesSearch) {
+        const tags = getNodeTags(node);
+        if (!Array.from(tags).some((tag) => tag.includes(search))) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  });
+}
+
 function showToast(message) {
   toast.textContent = message;
   toast.classList.add('visible');
@@ -68,6 +334,210 @@ function setTableLoading(isLoading) {
   if (tableLoadingOverlay) {
     tableLoadingOverlay.classList.toggle('visible', isLoading);
     tableLoadingOverlay.setAttribute('aria-hidden', String(!isLoading));
+  }
+}
+
+function handleFiltersChange() {
+  const filteredNodes = applyFilters(allNodes);
+  renderRows(filteredNodes);
+  updateSummary(allNodes, filteredNodes);
+}
+
+async function handleDeleteNode(node, button) {
+  if (!node || !node.id) {
+    return;
+  }
+
+  if (!ensureAdminAccess()) {
+    return;
+  }
+
+  const confirmation = window.confirm(
+    `Are you sure you want to delete the node "${node.id}"? This action cannot be undone.`
+  );
+
+  if (!confirmation) {
+    return;
+  }
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Deleting…';
+  }
+
+  try {
+    await fetchJson(
+      `/unregister/${encodeURIComponent(node.id)}`,
+      fetchOptions('DELETE', undefined, { requireAdmin: true })
+    );
+    showToast(`Node ${node.id} deleted`);
+    await loadNodes({ userInitiated: true });
+  } catch (error) {
+    console.error('Failed to delete node', error);
+    if (error.status === 403) {
+      lockAdminTools({
+        notify: true,
+        message: 'Your admin session has expired. Please sign in again.',
+        state: 'error',
+      });
+    } else {
+      showToast(error.message || 'Failed to delete node');
+    }
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Delete';
+    }
+  }
+}
+
+async function handleAddNode(event) {
+  event.preventDefault();
+
+  if (!addNodeForm) {
+    return;
+  }
+
+  if (!ensureAdminAccess()) {
+    return;
+  }
+
+  const formData = new FormData(addNodeForm);
+  const payload = {};
+
+  for (const [key, rawValue] of formData.entries()) {
+    if (rawValue == null) {
+      continue;
+    }
+    const value = typeof rawValue === 'string' ? rawValue.trim() : rawValue;
+    if (value === '') {
+      continue;
+    }
+
+    if (key === 'resources') {
+      try {
+        payload[key] = JSON.parse(value);
+      } catch (error) {
+        console.warn('Invalid resources JSON', error);
+        showToast('Resources must be valid JSON.');
+        return;
+      }
+      continue;
+    }
+
+    if (['max_sessions', 'active_sessions', 'port'].includes(key)) {
+      const numericValue = Number(value);
+      if (!Number.isFinite(numericValue)) {
+        showToast(`${key.replace('_', ' ')} must be a valid number.`);
+        return;
+      }
+      payload[key] = numericValue;
+      continue;
+    }
+
+    payload[key] = value;
+  }
+
+  if (addNodeSubmit) {
+    addNodeSubmit.disabled = true;
+    addNodeSubmit.dataset.originalLabel = addNodeSubmit.textContent;
+    addNodeSubmit.textContent = 'Registering…';
+  }
+
+  try {
+    await fetchJson('/register', fetchOptions('POST', payload, { requireAdmin: true }));
+    showToast('Node registered successfully');
+    addNodeForm.reset();
+    await loadNodes({ userInitiated: true });
+  } catch (error) {
+    console.error('Failed to register node', error);
+    if (error.status === 403) {
+      lockAdminTools({
+        notify: true,
+        message: 'Your admin session has expired. Please sign in again.',
+        state: 'error',
+      });
+    } else {
+      showToast(error.message || 'Failed to register node');
+    }
+  } finally {
+    if (addNodeSubmit) {
+      addNodeSubmit.disabled = false;
+      addNodeSubmit.textContent = addNodeSubmit.dataset.originalLabel || 'Register node';
+      delete addNodeSubmit.dataset.originalLabel;
+    }
+  }
+}
+
+async function verifyAdminToken(token) {
+  try {
+    await fetchJson('/admin/ping', fetchOptions('GET', undefined, { requireAdmin: true, adminTokenOverride: token }));
+    return true;
+  } catch (error) {
+    if (error.status === 403) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function initialiseAdminAccess() {
+  const storedToken = getStoredAdminToken();
+  if (!storedToken) {
+    lockAdminTools();
+    return;
+  }
+
+  showAdminLoginFeedback('Validating saved admin token…', 'info');
+
+  try {
+    const isValid = await verifyAdminToken(storedToken);
+    if (isValid) {
+      unlockAdminTools(storedToken, { notify: false });
+    } else {
+      lockAdminTools({ message: 'Saved token is no longer valid. Please sign in again.', state: 'error' });
+    }
+  } catch (error) {
+    console.error('Failed to validate stored admin token', error);
+    lockAdminTools({ state: 'error', message: 'Unable to validate admin token. Please try again.' });
+  }
+}
+
+async function handleAdminLogin(event) {
+  event.preventDefault();
+
+  if (!adminTokenInput || !adminLoginSubmit) {
+    return;
+  }
+
+  const token = adminTokenInput.value.trim();
+  if (!token) {
+    showAdminLoginFeedback('Please enter an admin access token.', 'error');
+    adminTokenInput.focus();
+    return;
+  }
+
+  adminLoginSubmit.disabled = true;
+  adminLoginSubmit.dataset.originalLabel = adminLoginSubmit.textContent;
+  adminLoginSubmit.textContent = 'Checking…';
+  showAdminLoginFeedback('Verifying token…', 'info');
+
+  try {
+    const isValid = await verifyAdminToken(token);
+    if (!isValid) {
+      showAdminLoginFeedback('Invalid admin token. Please try again.', 'error');
+      return;
+    }
+    unlockAdminTools(token);
+  } catch (error) {
+    console.error('Failed to verify admin token', error);
+    showAdminLoginFeedback('Unable to verify token. Please try again.', 'error');
+  } finally {
+    if (adminLoginSubmit) {
+      adminLoginSubmit.disabled = false;
+      adminLoginSubmit.textContent = adminLoginSubmit.dataset.originalLabel || 'Unlock';
+      delete adminLoginSubmit.dataset.originalLabel;
+    }
   }
 }
 
@@ -170,7 +640,10 @@ if (detailsModal) {
 function renderRows(nodes) {
   tableBody.innerHTML = '';
   if (nodes.length === 0) {
-    tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">No nodes registered yet.</td></tr>';
+    const emptyMessage = filtersAreActive()
+      ? 'No nodes match the selected filters.'
+      : 'No nodes registered yet.';
+    tableBody.innerHTML = `<tr><td colspan="4" class="empty-state">${emptyMessage}</td></tr>`;
     return;
   }
 
@@ -199,8 +672,11 @@ function renderRows(nodes) {
       <td>
         <span class="badge" data-status="${status}">${status}</span>
       </td>
-      <td>
-        <button class="action-button" data-show="${node.id}">Show details</button>
+      <td class="actions-column__cell">
+        <div class="actions-stack">
+          <button class="action-button" data-show="${node.id}">Show details</button>
+          <button class="danger-button" data-delete="${node.id}">Delete</button>
+        </div>
       </td>
     `;
 
@@ -213,13 +689,17 @@ function renderRows(nodes) {
     } else {
       trigger.addEventListener('click', () => showNodeDetails(node, trigger));
     }
+
+    const deleteButton = tr.querySelector('button[data-delete]');
+    if (deleteButton) {
+      deleteButton.addEventListener('click', () => handleDeleteNode(node, deleteButton));
+    }
     tableBody.appendChild(tr);
   }
 }
 
-function updateSummary(nodes) {
-  const total = nodes.length;
-  const counts = nodes.reduce(
+function updateSummary(allNodesList, visibleNodesList = allNodesList) {
+  const counts = visibleNodesList.reduce(
     (acc, node) => {
       const status = deriveStatus(node);
       acc[status] = (acc[status] || 0) + 1;
@@ -228,7 +708,17 @@ function updateSummary(nodes) {
     { online: 0, offline: 0, busy: 0 }
   );
 
-  summaryTotal.textContent = total;
+  summaryTotal.textContent = visibleNodesList.length;
+  summaryTotal.dataset.total = String(allNodesList.length);
+  if (visibleNodesList.length !== allNodesList.length) {
+    summaryTotal.setAttribute(
+      'title',
+      `Showing ${visibleNodesList.length} of ${allNodesList.length} total nodes`
+    );
+  } else {
+    summaryTotal.removeAttribute('title');
+  }
+
   summaryOnline.textContent = counts.online;
   summaryOffline.textContent = counts.offline;
   summaryBusy.textContent = counts.busy;
@@ -247,9 +737,10 @@ async function loadNodes({ userInitiated = false } = {}) {
 
   try {
     const nodeMap = await fetchJson('/nodes');
-    const nodes = Object.values(nodeMap);
-    renderRows(nodes);
-    updateSummary(nodes);
+    allNodes = Object.values(nodeMap);
+    const filtered = applyFilters(allNodes);
+    renderRows(filtered);
+    updateSummary(allNodes, filtered);
   } catch (error) {
     console.error('Failed to load nodes', error);
     if (!hasExistingRows) {
@@ -265,7 +756,31 @@ async function loadNodes({ userInitiated = false } = {}) {
   }
 }
 
+if (filterForm) {
+  filterForm.addEventListener('input', handleFiltersChange);
+  filterForm.addEventListener('change', handleFiltersChange);
+}
+
+if (addNodeForm) {
+  addNodeForm.addEventListener('submit', handleAddNode);
+}
+
+if (adminLoginForm) {
+  adminLoginForm.addEventListener('submit', handleAdminLogin);
+}
+
+if (adminLockButton) {
+  adminLockButton.addEventListener('click', () => {
+    lockAdminTools({
+      notify: true,
+      message: 'Admin access locked. Enter a token to continue.',
+      state: 'info',
+    });
+  });
+}
+
 refreshButton.addEventListener('click', () => loadNodes({ userInitiated: true }));
 
+initialiseAdminAccess();
 loadNodes();
 setInterval(() => loadNodes(), REFRESH_INTERVAL);
