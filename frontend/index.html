@@ -44,10 +44,56 @@
         </div>
       </section>
 
+      <section class="filters" aria-label="Node filters">
+        <h2 class="section-title">Filters</h2>
+        <form id="filters-form" class="filters-form">
+          <label class="filter-field">
+            <span class="filter-label">Search</span>
+            <input
+              id="filter-search"
+              name="search"
+              type="search"
+              placeholder="Node ID, device name or host"
+            />
+          </label>
+          <label class="filter-field">
+            <span class="filter-label">Platform</span>
+            <select id="filter-platform" name="platform">
+              <option value="">All</option>
+              <option value="ios">iOS</option>
+              <option value="android">Android</option>
+              <option value="android-emulator">Android Emulator</option>
+              <option value="web">Web</option>
+            </select>
+          </label>
+          <label class="filter-field">
+            <span class="filter-label">Platform version</span>
+            <input
+              id="filter-platform-version"
+              name="platform_version"
+              type="text"
+              placeholder="e.g. 17.5"
+            />
+          </label>
+          <label class="filter-field">
+            <span class="filter-label">Status</span>
+            <select id="filter-status" name="status">
+              <option value="">All</option>
+              <option value="online">Online</option>
+              <option value="busy">Busy</option>
+              <option value="offline">Offline</option>
+            </select>
+          </label>
+        </form>
+      </section>
+
       <section class="table-section" aria-label="Node details">
         <div class="table-header">
           <h2>Nodes</h2>
-          <p class="table-subtitle">Click the details button to view node information for manual copy.</p>
+          <p class="table-subtitle">
+            Use the filters above to narrow down the list and click the details button to view
+            node information for manual copy.
+          </p>
         </div>
         <div class="table-wrapper">
           <div
@@ -75,6 +121,90 @@
               </tr>
             </tbody>
           </table>
+        </div>
+      </section>
+      <section class="admin-section" aria-label="Admin portal">
+        <div class="admin-card">
+          <h2 class="section-title">Admin portal</h2>
+          <p class="admin-description">
+            Register new nodes or remove stale entries directly from the dashboard. Fields left blank
+            will fall back to sensible defaults provided by the proxy service.
+          </p>
+          <form id="add-node-form" class="admin-form">
+            <div class="form-grid">
+              <label class="form-field">
+                <span class="form-label">Node ID</span>
+                <input type="text" name="id" placeholder="Optional unique identifier" />
+              </label>
+              <label class="form-field">
+                <span class="form-label">Type</span>
+                <input type="text" name="type" placeholder="physical, virtual…" />
+              </label>
+              <label class="form-field">
+                <span class="form-label">UDID</span>
+                <input type="text" name="udid" placeholder="Required for physical iOS" />
+              </label>
+              <label class="form-field">
+                <span class="form-label">Host</span>
+                <input type="text" name="host" placeholder="10.0.0.5" />
+              </label>
+              <label class="form-field">
+                <span class="form-label">Port</span>
+                <input type="number" name="port" placeholder="4723" min="0" />
+              </label>
+              <label class="form-field">
+                <span class="form-label">Protocol</span>
+                <input type="text" name="protocol" placeholder="http" />
+              </label>
+              <label class="form-field">
+                <span class="form-label">Path</span>
+                <input type="text" name="path" placeholder="/wd/hub" />
+              </label>
+              <label class="form-field">
+                <span class="form-label">Max sessions</span>
+                <input type="number" name="max_sessions" min="0" placeholder="1" />
+              </label>
+              <label class="form-field">
+                <span class="form-label">Active sessions</span>
+                <input type="number" name="active_sessions" min="0" placeholder="0" />
+              </label>
+              <label class="form-field">
+                <span class="form-label">Status</span>
+                <select name="status">
+                  <option value="online">Online</option>
+                  <option value="busy">Busy</option>
+                  <option value="offline">Offline</option>
+                </select>
+              </label>
+              <label class="form-field">
+                <span class="form-label">Platform</span>
+                <input type="text" name="platform" placeholder="iOS, Android…" />
+              </label>
+              <label class="form-field">
+                <span class="form-label">Platform version</span>
+                <input type="text" name="platform_version" placeholder="17.5" />
+              </label>
+              <label class="form-field">
+                <span class="form-label">Device name</span>
+                <input type="text" name="device_name" placeholder="Device label" />
+              </label>
+              <label class="form-field form-field--wide">
+                <span class="form-label">Resources JSON</span>
+                <textarea
+                  name="resources"
+                  rows="3"
+                  placeholder='{"session_data": {"platform": "iOS"}}'
+                ></textarea>
+              </label>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="button" id="add-node-submit">Register node</button>
+            </div>
+          </form>
+          <p class="admin-hint">
+            To delete a node, use the delete action in the table above. Nodes are removed immediately
+            after confirmation.
+          </p>
         </div>
       </section>
     </main>
@@ -106,5 +236,6 @@
         ></pre>
       </div>
     </div>
+
   </body>
 </html>
