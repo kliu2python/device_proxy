@@ -34,12 +34,21 @@ app.include_router(proxy_router)
 app.include_router(node_router)
 
 
-@app.get("/", response_class=FileResponse)
-async def serve_frontend():
+def _get_index_path() -> Path:
     index_path = frontend_dir / "index.html"
     if not index_path.exists():
         raise HTTPException(status_code=404, detail="Frontend not configured")
-    return FileResponse(index_path)
+    return index_path
+
+
+@app.get("/", response_class=FileResponse)
+async def serve_frontend():
+    return FileResponse(_get_index_path())
+
+
+@app.get("/admin", response_class=FileResponse)
+async def serve_admin_frontend():
+    return FileResponse(_get_index_path())
 
 @app.on_event("startup")
 async def startup_event():

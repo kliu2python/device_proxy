@@ -129,23 +129,34 @@
             <div>
               <h2 class="section-title">Admin portal</h2>
               <p class="admin-description">
-                Access to register or delete nodes requires an admin token.
+                Access to register or delete nodes requires administrator credentials. Only
+                authorised users should sign in.
               </p>
             </div>
           </div>
           <form id="admin-login-form" class="admin-form admin-form--compact">
             <label class="form-field">
-              <span class="form-label">Access token</span>
+              <span class="form-label">Username</span>
+              <input
+                type="text"
+                id="admin-username"
+                name="username"
+                autocomplete="username"
+                required
+              />
+            </label>
+            <label class="form-field">
+              <span class="form-label">Password</span>
               <input
                 type="password"
-                id="admin-token"
-                name="token"
+                id="admin-password"
+                name="password"
                 autocomplete="current-password"
                 required
               />
             </label>
             <div class="form-actions">
-              <button type="submit" class="button" id="admin-login-submit">Unlock</button>
+              <button type="submit" class="button" id="admin-login-submit">Sign in</button>
             </div>
           </form>
           <p class="admin-hint" id="admin-login-feedback" aria-live="polite"></p>

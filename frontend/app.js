@@ -17,8 +17,10 @@ const filterPlatformVersion = document.getElementById('filter-platform-version')
 const filterStatus = document.getElementById('filter-status');
 const addNodeForm = document.getElementById('add-node-form');
 const addNodeSubmit = document.getElementById('add-node-submit');
+const adminSection = document.getElementById('admin-section');
 const adminLoginForm = document.getElementById('admin-login-form');
-const adminTokenInput = document.getElementById('admin-token');
+const adminUsernameInput = document.getElementById('admin-username');
+const adminPasswordInput = document.getElementById('admin-password');
 const adminLoginFeedback = document.getElementById('admin-login-feedback');
 const adminLoginSubmit = document.getElementById('admin-login-submit');
 const adminLoginCard = document.getElementById('admin-login-card');
@@ -41,6 +43,12 @@ const REFRESH_INTERVAL = 15000;
 const STATUS_PRIORITY = ['busy', 'offline', 'online'];
 const API_BASE_URL = 'http://10.160.24.110:8080';
 const ADMIN_TOKEN_STORAGE_KEY = 'deviceProxyAdminToken';
+const normalisedPathname = window.location.pathname.replace(/\/+$/, '') || '/';
+const isAdminRoute = normalisedPathname === '/admin';
+
+if (!isAdminRoute && adminSection) {
+  adminSection.hidden = true;
+}
 
 function normaliseText(value) {
   if (typeof value !== 'string') {
@@ -111,10 +119,37 @@ function showAdminLoginFeedback(message, state = 'info') {
   adminLoginFeedback.dataset.state = state;
 }
 
+function refreshAdminDependentUi() {
+  if (!tableBody) {
+    return;
+  }
+
+  const filtered = applyFilters(allNodes);
+  renderRows(filtered);
+}
+
 function lockAdminTools({ notify = false, message, state = 'info' } = {}) {
   isAdminUnlocked = false;
+  const previousToken = adminToken;
   adminToken = '';
   clearStoredAdminToken();
+
+  if (previousToken) {
+    fetch(`${API_BASE_URL}/admin/logout`, fetchOptions('POST', { token: previousToken })).catch(
+      (error) => {
+        console.warn('Failed to revoke admin session', error);
+      }
+    );
+  }
+
+  refreshAdminDependentUi();
+
+  if (!isAdminRoute) {
+    if (adminSection) {
+      adminSection.hidden = true;
+    }
+    return;
+  }
 
   if (adminToolsCard) {
     adminToolsCard.hidden = true;
@@ -123,8 +158,11 @@ function lockAdminTools({ notify = false, message, state = 'info' } = {}) {
     adminLoginCard.hidden = false;
   }
 
-  if (adminTokenInput) {
-    adminTokenInput.value = '';
+  if (adminUsernameInput) {
+    adminUsernameInput.value = '';
+  }
+  if (adminPasswordInput) {
+    adminPasswordInput.value = '';
   }
 
   if (message) {
@@ -144,6 +182,12 @@ function unlockAdminTools(token, { notify = true } = {}) {
   adminToken = token;
   storeAdminToken(token);
 
+  refreshAdminDependentUi();
+
+  if (!isAdminRoute) {
+    return;
+  }
+
   if (adminToolsCard) {
     adminToolsCard.hidden = false;
   }
@@ -151,8 +195,15 @@ function unlockAdminTools(token, { notify = true } = {}) {
     adminLoginCard.hidden = true;
   }
 
-  if (adminTokenInput) {
-    adminTokenInput.value = '';
+  if (adminSection) {
+    adminSection.hidden = false;
+  }
+
+  if (adminUsernameInput) {
+    adminUsernameInput.value = '';
+  }
+  if (adminPasswordInput) {
+    adminPasswordInput.value = '';
   }
 
   if (adminLoginFeedback) {
@@ -169,10 +220,20 @@ function ensureAdminAccess({ focus = true } = {}) {
   if (isAdminUnlocked && adminToken) {
     return true;
   }
+
+  if (!isAdminRoute) {
+    if (focus) {
+      showToast('Admin tools are available from the /admin page.');
+    }
+    return false;
+  }
+
   if (focus && adminLoginCard) {
     adminLoginCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    if (adminTokenInput) {
-      adminTokenInput.focus();
+    if (adminUsernameInput) {
+      adminUsernameInput.focus();
+    } else if (adminPasswordInput) {
+      adminPasswordInput.focus();
     }
   }
   if (!focus) {
@@ -482,61 +543,87 @@ async function verifyAdminToken(token) {
 }
 
 async function initialiseAdminAccess() {
+  if (!isAdminRoute) {
+    lockAdminTools();
+    return;
+  }
+
   const storedToken = getStoredAdminToken();
   if (!storedToken) {
     lockAdminTools();
     return;
   }
 
-  showAdminLoginFeedback('Validating saved admin token…', 'info');
+  showAdminLoginFeedback('Validating saved admin session…', 'info');
 
   try {
     const isValid = await verifyAdminToken(storedToken);
     if (isValid) {
       unlockAdminTools(storedToken, { notify: false });
     } else {
-      lockAdminTools({ message: 'Saved token is no longer valid. Please sign in again.', state: 'error' });
+      lockAdminTools({ message: 'Saved session is no longer valid. Please sign in again.', state: 'error' });
     }
   } catch (error) {
-    console.error('Failed to validate stored admin token', error);
-    lockAdminTools({ state: 'error', message: 'Unable to validate admin token. Please try again.' });
+    console.error('Failed to validate stored admin session', error);
+    lockAdminTools({ state: 'error', message: 'Unable to validate admin session. Please try again.' });
   }
 }
 
 async function handleAdminLogin(event) {
   event.preventDefault();
 
-  if (!adminTokenInput || !adminLoginSubmit) {
+  if (!isAdminRoute) {
+    showToast('Admin login is only available from /admin.');
     return;
   }
 
-  const token = adminTokenInput.value.trim();
-  if (!token) {
-    showAdminLoginFeedback('Please enter an admin access token.', 'error');
-    adminTokenInput.focus();
+  if (!adminLoginForm || !adminLoginSubmit) {
+    return;
+  }
+
+  const username = adminUsernameInput?.value.trim() || '';
+  if (!username) {
+    showAdminLoginFeedback('Please enter the admin username.', 'error');
+    adminUsernameInput?.focus();
+    return;
+  }
+
+  const password = adminPasswordInput?.value || '';
+  if (!password) {
+    showAdminLoginFeedback('Please enter the admin password.', 'error');
+    adminPasswordInput?.focus();
     return;
   }
 
   adminLoginSubmit.disabled = true;
   adminLoginSubmit.dataset.originalLabel = adminLoginSubmit.textContent;
-  adminLoginSubmit.textContent = 'Checking…';
-  showAdminLoginFeedback('Verifying token…', 'info');
+  adminLoginSubmit.textContent = 'Signing in…';
 
   try {
-    const isValid = await verifyAdminToken(token);
-    if (!isValid) {
-      showAdminLoginFeedback('Invalid admin token. Please try again.', 'error');
-      return;
+    const response = await fetchJson('/admin/login', fetchOptions('POST', { username, password }));
+    const token = response?.token;
+    if (!token) {
+      throw new Error('Admin session token was not returned.');
     }
+
     unlockAdminTools(token);
+    await loadNodes({ userInitiated: true });
   } catch (error) {
-    console.error('Failed to verify admin token', error);
-    showAdminLoginFeedback('Unable to verify token. Please try again.', 'error');
+    console.error('Failed to sign in as admin', error);
+    if (error.status === 403) {
+      showAdminLoginFeedback('Invalid username or password. Please try again.', 'error');
+    } else {
+      showAdminLoginFeedback(error.message || 'Unable to sign in. Please try again.', 'error');
+    }
   } finally {
     if (adminLoginSubmit) {
       adminLoginSubmit.disabled = false;
-      adminLoginSubmit.textContent = adminLoginSubmit.dataset.originalLabel || 'Unlock';
+      adminLoginSubmit.textContent = adminLoginSubmit.dataset.originalLabel || 'Sign in';
       delete adminLoginSubmit.dataset.originalLabel;
+    }
+
+    if (adminPasswordInput) {
+      adminPasswordInput.value = '';
     }
   }
 }
@@ -663,6 +750,14 @@ function renderRows(nodes) {
     const status = deriveStatus(node);
     const isDetailsAvailable = status === 'online';
 
+    const actions = [
+      `<button class="action-button" data-show="${node.id}">Show details</button>`,
+    ];
+
+    if (isAdminUnlocked && adminToken) {
+      actions.push(`<button class="danger-button" data-delete="${node.id}">Delete</button>`);
+    }
+
     tr.innerHTML = `
       <td>
         <div class="node-name">${node.id || 'Unknown node'}</div>
@@ -674,8 +769,7 @@ function renderRows(nodes) {
       </td>
       <td class="actions-column__cell">
         <div class="actions-stack">
-          <button class="action-button" data-show="${node.id}">Show details</button>
-          <button class="danger-button" data-delete="${node.id}">Delete</button>
+          ${actions.join('\n          ')}
         </div>
       </td>
     `;
@@ -773,7 +867,7 @@ if (adminLockButton) {
   adminLockButton.addEventListener('click', () => {
     lockAdminTools({
       notify: true,
-      message: 'Admin access locked. Enter a token to continue.',
+      message: 'Admin access locked. Enter your credentials to continue.',
       state: 'info',
     });
   });

@@ -11,6 +11,7 @@ from typing import Dict, Iterable, List, Optional, Set
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import Response
+from pydantic import BaseModel
 
 router = APIRouter()
 redis_client = aioredis.from_url("redis://10.160.13.16:6379/0", decode_responses=True)
@@ -19,7 +20,8 @@ logger = logging.getLogger(__name__)
 
 NODE_RESOURCES_CSV = Path(__file__).resolve().parent / "node_resources.csv"
 NODE_SESSION_COUNTS_KEY = "node_session_counts"
-ADMIN_TOKEN_ENV_VAR = "ADMIN_API_TOKEN"
+ADMIN_USERNAME_ENV_VAR = "ADMIN_USERNAME"
+ADMIN_PASSWORD_ENV_VAR = "ADMIN_PASSWORD"
 CSV_TEMPLATE_HEADERS = [
     "id",
     "type",
@@ -39,7 +41,18 @@ CSV_TEMPLATE_HEADERS = [
 
 SUPPORTED_DEVICE_POOLS = {"ios", "android", "android-emulator", "web"}
 
-_ADMIN_API_TOKEN = os.getenv(ADMIN_TOKEN_ENV_VAR)
+_ADMIN_USERNAME = os.getenv(ADMIN_USERNAME_ENV_VAR, "admin")
+_ADMIN_PASSWORD = os.getenv(ADMIN_PASSWORD_ENV_VAR, "Fortinet01!")
+_ACTIVE_ADMIN_TOKENS: Set[str] = set()
+
+
+class AdminCredentials(BaseModel):
+    username: str
+    password: str
+
+
+class AdminLogoutRequest(BaseModel):
+    token: Optional[str] = None
 
 
 class NodeRegistrationError(Exception):
@@ -54,18 +67,10 @@ def _strip_or_none(value: Optional[str]) -> Optional[str]:
 
 
 def _verify_admin_token(admin_token: Optional[str]) -> None:
-    if not _ADMIN_API_TOKEN:
-        return
-
     if not admin_token:
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    try:
-        is_valid = secrets.compare_digest(admin_token, _ADMIN_API_TOKEN)
-    except Exception:
-        is_valid = False
-
-    if not is_valid:
+    if admin_token not in _ACTIVE_ADMIN_TOKENS:
         raise HTTPException(status_code=403, detail="Admin access required")
 
 
@@ -75,6 +80,28 @@ def require_admin(
     """FastAPI dependency used to guard admin-only endpoints."""
 
     _verify_admin_token(admin_token)
+
+
+@router.post("/admin/login")
+async def admin_login(credentials: AdminCredentials):
+    if (
+        credentials.username != _ADMIN_USERNAME
+        or credentials.password != _ADMIN_PASSWORD
+    ):
+        raise HTTPException(status_code=403, detail="Invalid credentials")
+
+    token = secrets.token_urlsafe(32)
+    _ACTIVE_ADMIN_TOKENS.add(token)
+    return {"token": token}
+
+
+@router.post("/admin/logout")
+async def admin_logout(request: AdminLogoutRequest):
+    token = request.token
+    if token:
+        _ACTIVE_ADMIN_TOKENS.discard(token)
+
+    return Response(status_code=204)
 
 
 async def _physical_udid_exists(udid: str, *, exclude_node_id: Optional[str] = None) -> bool:
