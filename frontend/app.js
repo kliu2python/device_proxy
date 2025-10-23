@@ -17,22 +17,28 @@ const filterPlatformVersion = document.getElementById('filter-platform-version')
 const filterStatus = document.getElementById('filter-status');
 const addNodeForm = document.getElementById('add-node-form');
 const addNodeSubmit = document.getElementById('add-node-submit');
-const adminSection = document.getElementById('admin-section');
+const adminToolsTrigger = document.getElementById('admin-tools-trigger');
 const adminLoginForm = document.getElementById('admin-login-form');
 const adminUsernameInput = document.getElementById('admin-username');
 const adminPasswordInput = document.getElementById('admin-password');
 const adminLoginFeedback = document.getElementById('admin-login-feedback');
 const adminLoginSubmit = document.getElementById('admin-login-submit');
-const adminLoginCard = document.getElementById('admin-login-card');
-const adminToolsCard = document.getElementById('admin-tools-card');
 const adminLockButton = document.getElementById('admin-lock-button');
-const dismissTargets = detailsModal
+const adminModal = document.getElementById('admin-modal');
+const adminLoginPanel = document.getElementById('admin-login-panel');
+const adminToolsPanel = document.getElementById('admin-tools-panel');
+const adminModalTitle = document.getElementById('admin-modal-title');
+const detailsDismissTargets = detailsModal
   ? Array.from(detailsModal.querySelectorAll('[data-dismiss]'))
+  : [];
+const adminModalDismissTargets = adminModal
+  ? Array.from(adminModal.querySelectorAll('[data-dismiss]'))
   : [];
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
 
 let lastFocusedTrigger = null;
+let lastAdminModalTrigger = null;
 let isInitialLoad = true;
 let allNodes = [];
 let adminToken = '';
@@ -45,10 +51,6 @@ const API_BASE_URL = 'http://10.160.24.110:8080';
 const ADMIN_TOKEN_STORAGE_KEY = 'deviceProxyAdminToken';
 const normalisedPathname = window.location.pathname.replace(/\/+$/, '') || '/';
 const isAdminRoute = normalisedPathname === '/admin';
-
-if (!isAdminRoute && adminSection) {
-  adminSection.hidden = true;
-}
 
 function normaliseText(value) {
   if (typeof value !== 'string') {
@@ -119,6 +121,80 @@ function showAdminLoginFeedback(message, state = 'info') {
   adminLoginFeedback.dataset.state = state;
 }
 
+function setAdminModalView(view) {
+  if (!adminModal) {
+    return;
+  }
+
+  const resolvedView = view === 'tools' && isAdminUnlocked ? 'tools' : 'login';
+
+  if (adminLoginPanel) {
+    adminLoginPanel.hidden = resolvedView !== 'login';
+  }
+  if (adminToolsPanel) {
+    adminToolsPanel.hidden = resolvedView !== 'tools';
+  }
+  if (adminModalTitle) {
+    adminModalTitle.textContent =
+      resolvedView === 'tools' ? 'Admin tools' : 'Admin sign in';
+  }
+}
+
+function focusAdminModal(view) {
+  if (!adminModal) {
+    return;
+  }
+
+  const resolvedView = view === 'tools' && isAdminUnlocked ? 'tools' : 'login';
+
+  if (resolvedView === 'login') {
+    if (adminUsernameInput && !adminUsernameInput.disabled) {
+      adminUsernameInput.focus();
+      return;
+    }
+    if (adminPasswordInput && !adminPasswordInput.disabled) {
+      adminPasswordInput.focus();
+      return;
+    }
+    const loginButton = adminLoginForm?.querySelector('button:not([disabled])');
+    loginButton?.focus();
+    return;
+  }
+
+  const firstField = addNodeForm?.querySelector('input:not([disabled]), select:not([disabled]), textarea:not([disabled])');
+  if (firstField && !firstField.disabled) {
+    firstField.focus();
+  }
+}
+
+function openAdminModal(view = isAdminUnlocked ? 'tools' : 'login', { trigger } = {}) {
+  if (!adminModal) {
+    return;
+  }
+
+  lastAdminModalTrigger = trigger || null;
+  setAdminModalView(view);
+  adminModal.classList.add('visible');
+  adminModal.setAttribute('aria-hidden', 'false');
+  window.requestAnimationFrame(() => focusAdminModal(view));
+}
+
+function closeAdminModal({ restoreFocus = true } = {}) {
+  if (!adminModal) {
+    return;
+  }
+
+  adminModal.classList.remove('visible');
+  adminModal.setAttribute('aria-hidden', 'true');
+
+  if (restoreFocus && lastAdminModalTrigger && typeof lastAdminModalTrigger.focus === 'function') {
+    if (lastAdminModalTrigger.isConnected) {
+      lastAdminModalTrigger.focus();
+    }
+  }
+  lastAdminModalTrigger = null;
+}
+
 function refreshAdminDependentUi() {
   if (!tableBody) {
     return;
@@ -128,13 +204,19 @@ function refreshAdminDependentUi() {
   renderRows(filtered);
 }
 
-function lockAdminTools({ notify = false, message, state = 'info' } = {}) {
+function lockAdminTools({
+  notify = false,
+  message,
+  state = 'info',
+  revokeSession = true,
+  focusLogin = isAdminRoute,
+} = {}) {
   isAdminUnlocked = false;
   const previousToken = adminToken;
   adminToken = '';
   clearStoredAdminToken();
 
-  if (previousToken) {
+  if (previousToken && revokeSession) {
     fetch(`${API_BASE_URL}/admin/logout`, fetchOptions('POST', { token: previousToken })).catch(
       (error) => {
         console.warn('Failed to revoke admin session', error);
@@ -143,20 +225,6 @@ function lockAdminTools({ notify = false, message, state = 'info' } = {}) {
   }
 
   refreshAdminDependentUi();
-
-  if (!isAdminRoute) {
-    if (adminSection) {
-      adminSection.hidden = true;
-    }
-    return;
-  }
-
-  if (adminToolsCard) {
-    adminToolsCard.hidden = true;
-  }
-  if (adminLoginCard) {
-    adminLoginCard.hidden = false;
-  }
 
   if (adminUsernameInput) {
     adminUsernameInput.value = '';
@@ -172,6 +240,15 @@ function lockAdminTools({ notify = false, message, state = 'info' } = {}) {
     delete adminLoginFeedback.dataset.state;
   }
 
+  if (adminModal) {
+    setAdminModalView('login');
+    if (isAdminRoute && focusLogin) {
+      openAdminModal('login');
+    } else if (!isAdminRoute) {
+      closeAdminModal({ restoreFocus: false });
+    }
+  }
+
   if (notify) {
     showToast('Admin access required to manage nodes.');
   }
@@ -183,21 +260,6 @@ function unlockAdminTools(token, { notify = true } = {}) {
   storeAdminToken(token);
 
   refreshAdminDependentUi();
-
-  if (!isAdminRoute) {
-    return;
-  }
-
-  if (adminToolsCard) {
-    adminToolsCard.hidden = false;
-  }
-  if (adminLoginCard) {
-    adminLoginCard.hidden = true;
-  }
-
-  if (adminSection) {
-    adminSection.hidden = false;
-  }
 
   if (adminUsernameInput) {
     adminUsernameInput.value = '';
@@ -211,8 +273,18 @@ function unlockAdminTools(token, { notify = true } = {}) {
     delete adminLoginFeedback.dataset.state;
   }
 
+  if (adminModal) {
+    const wasModalOpen = adminModal.classList.contains('visible');
+    setAdminModalView('tools');
+    if (!wasModalOpen) {
+      closeAdminModal({ restoreFocus: false });
+    } else {
+      window.requestAnimationFrame(() => focusAdminModal('tools'));
+    }
+  }
+
   if (notify) {
-    showToast('Admin tools unlocked.');
+    showToast('Admin tools unlocked. Use “Add node” to manage nodes.');
   }
 }
 
@@ -221,25 +293,14 @@ function ensureAdminAccess({ focus = true } = {}) {
     return true;
   }
 
-  if (!isAdminRoute) {
-    if (focus) {
-      showToast('Admin tools are available from the /admin page.');
-    }
-    return false;
-  }
-
-  if (focus && adminLoginCard) {
-    adminLoginCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    if (adminUsernameInput) {
-      adminUsernameInput.focus();
-    } else if (adminPasswordInput) {
-      adminPasswordInput.focus();
+  if (focus) {
+    if (isAdminRoute) {
+      openAdminModal('login');
+      showToast('Admin access required. Please sign in to continue.');
+    } else {
+      showToast('Admin tools require signing in at /admin.');
     }
   }
-  if (!focus) {
-    return false;
-  }
-  showToast('Admin access required. Please unlock the admin tools.');
   return false;
 }
 
@@ -543,29 +604,33 @@ async function verifyAdminToken(token) {
 }
 
 async function initialiseAdminAccess() {
-  if (!isAdminRoute) {
-    lockAdminTools();
-    return;
-  }
-
   const storedToken = getStoredAdminToken();
+
   if (!storedToken) {
-    lockAdminTools();
+    lockAdminTools({ revokeSession: false });
     return;
   }
 
-  showAdminLoginFeedback('Validating saved admin session…', 'info');
+  if (isAdminRoute) {
+    showAdminLoginFeedback('Validating saved admin session…', 'info');
+  }
 
   try {
     const isValid = await verifyAdminToken(storedToken);
     if (isValid) {
       unlockAdminTools(storedToken, { notify: false });
     } else {
-      lockAdminTools({ message: 'Saved session is no longer valid. Please sign in again.', state: 'error' });
+      lockAdminTools({
+        message: 'Saved session is no longer valid. Please sign in again.',
+        state: 'error',
+      });
     }
   } catch (error) {
     console.error('Failed to validate stored admin session', error);
-    lockAdminTools({ state: 'error', message: 'Unable to validate admin session. Please try again.' });
+    lockAdminTools({
+      state: 'error',
+      message: 'Unable to validate admin session. Please try again.',
+    });
   }
 }
 
@@ -684,7 +749,7 @@ function showNodeDetails(node, triggerButton) {
 }
 
 if (detailsModal) {
-  dismissTargets.forEach((target) => {
+  detailsDismissTargets.forEach((target) => {
     target.addEventListener('click', closeDetailsModal);
   });
 
@@ -720,6 +785,50 @@ if (detailsModal) {
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && detailsModal.classList.contains('visible')) {
       closeDetailsModal();
+    }
+  });
+}
+
+if (adminModal) {
+  adminModalDismissTargets.forEach((target) => {
+    target.addEventListener('click', () => closeAdminModal());
+  });
+
+  adminModal.addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab' || !adminModal.classList.contains('visible')) {
+      return;
+    }
+
+    const focusableElements = Array.from(adminModal.querySelectorAll(FOCUSABLE_SELECTOR)).filter(
+      (element) =>
+        !element.hasAttribute('disabled') &&
+        !element.closest('[hidden]') &&
+        (element.offsetParent !== null || element.getClientRects().length > 0)
+    );
+
+    if (focusableElements.length === 0) {
+      event.preventDefault();
+      return;
+    }
+
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+    const { activeElement } = document;
+
+    if (event.shiftKey) {
+      if (activeElement === firstElement || !adminModal.contains(activeElement)) {
+        event.preventDefault();
+        lastElement.focus();
+      }
+    } else if (activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && adminModal.classList.contains('visible')) {
+      closeAdminModal();
     }
   });
 }
@@ -870,6 +979,25 @@ if (adminLockButton) {
       message: 'Admin access locked. Enter your credentials to continue.',
       state: 'info',
     });
+  });
+}
+
+if (adminToolsTrigger) {
+  adminToolsTrigger.addEventListener('click', () => {
+    if (isAdminUnlocked && adminToken) {
+      openAdminModal('tools', { trigger: adminToolsTrigger });
+      return;
+    }
+
+    if (isAdminRoute) {
+      openAdminModal('login', { trigger: adminToolsTrigger });
+      if (!adminLoginFeedback?.textContent) {
+        showAdminLoginFeedback('Sign in with your admin credentials to continue.', 'info');
+      }
+      return;
+    }
+
+    showToast('Admin tools require signing in at /admin.');
   });
 }
 
