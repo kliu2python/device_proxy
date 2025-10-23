@@ -17,6 +17,13 @@ const filterPlatformVersion = document.getElementById('filter-platform-version')
 const filterStatus = document.getElementById('filter-status');
 const addNodeForm = document.getElementById('add-node-form');
 const addNodeSubmit = document.getElementById('add-node-submit');
+const adminLoginForm = document.getElementById('admin-login-form');
+const adminTokenInput = document.getElementById('admin-token');
+const adminLoginFeedback = document.getElementById('admin-login-feedback');
+const adminLoginSubmit = document.getElementById('admin-login-submit');
+const adminLoginCard = document.getElementById('admin-login-card');
+const adminToolsCard = document.getElementById('admin-tools-card');
+const adminLockButton = document.getElementById('admin-lock-button');
 const dismissTargets = detailsModal
   ? Array.from(detailsModal.querySelectorAll('[data-dismiss]'))
   : [];
@@ -26,11 +33,14 @@ const FOCUSABLE_SELECTOR =
 let lastFocusedTrigger = null;
 let isInitialLoad = true;
 let allNodes = [];
+let adminToken = '';
+let isAdminUnlocked = false;
 
 const REFRESH_INTERVAL = 15000;
 
 const STATUS_PRIORITY = ['busy', 'offline', 'online'];
 const API_BASE_URL = 'http://10.160.24.110:8080';
+const ADMIN_TOKEN_STORAGE_KEY = 'deviceProxyAdminToken';
 
 function normaliseText(value) {
   if (typeof value !== 'string') {
@@ -68,20 +78,150 @@ function getNodeTags(node) {
   return tags;
 }
 
-function fetchOptions(method = 'GET', payload) {
+function getStoredAdminToken() {
+  try {
+    return window.localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || '';
+  } catch (error) {
+    console.warn('Unable to access localStorage for admin token', error);
+    return '';
+  }
+}
+
+function storeAdminToken(token) {
+  try {
+    window.localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token);
+  } catch (error) {
+    console.warn('Unable to persist admin token', error);
+  }
+}
+
+function clearStoredAdminToken() {
+  try {
+    window.localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
+  } catch (error) {
+    console.warn('Unable to clear stored admin token', error);
+  }
+}
+
+function showAdminLoginFeedback(message, state = 'info') {
+  if (!adminLoginFeedback) {
+    return;
+  }
+  adminLoginFeedback.textContent = message;
+  adminLoginFeedback.dataset.state = state;
+}
+
+function lockAdminTools({ notify = false, message, state = 'info' } = {}) {
+  isAdminUnlocked = false;
+  adminToken = '';
+  clearStoredAdminToken();
+
+  if (adminToolsCard) {
+    adminToolsCard.hidden = true;
+  }
+  if (adminLoginCard) {
+    adminLoginCard.hidden = false;
+  }
+
+  if (adminTokenInput) {
+    adminTokenInput.value = '';
+  }
+
+  if (message) {
+    showAdminLoginFeedback(message, state);
+  } else if (adminLoginFeedback) {
+    adminLoginFeedback.textContent = '';
+    delete adminLoginFeedback.dataset.state;
+  }
+
+  if (notify) {
+    showToast('Admin access required to manage nodes.');
+  }
+}
+
+function unlockAdminTools(token, { notify = true } = {}) {
+  isAdminUnlocked = true;
+  adminToken = token;
+  storeAdminToken(token);
+
+  if (adminToolsCard) {
+    adminToolsCard.hidden = false;
+  }
+  if (adminLoginCard) {
+    adminLoginCard.hidden = true;
+  }
+
+  if (adminTokenInput) {
+    adminTokenInput.value = '';
+  }
+
+  if (adminLoginFeedback) {
+    adminLoginFeedback.textContent = '';
+    delete adminLoginFeedback.dataset.state;
+  }
+
+  if (notify) {
+    showToast('Admin tools unlocked.');
+  }
+}
+
+function ensureAdminAccess({ focus = true } = {}) {
+  if (isAdminUnlocked && adminToken) {
+    return true;
+  }
+  if (focus && adminLoginCard) {
+    adminLoginCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (adminTokenInput) {
+      adminTokenInput.focus();
+    }
+  }
+  if (!focus) {
+    return false;
+  }
+  showToast('Admin access required. Please unlock the admin tools.');
+  return false;
+}
+
+function fetchOptions(method = 'GET', payload, { requireAdmin = false, adminTokenOverride } = {}) {
   const options = { method, headers: { Accept: 'application/json' } };
   if (payload !== undefined) {
     options.headers['Content-Type'] = 'application/json';
     options.body = JSON.stringify(payload);
   }
+
+  if (requireAdmin) {
+    const token = adminTokenOverride ?? adminToken;
+    if (token) {
+      options.headers['X-Admin-Token'] = token;
+    }
+  }
+
   return options;
 }
 
 async function fetchJson(endpoint, options) {
   const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    let message = `Request failed: ${response.status}`;
+    let payload = null;
+    try {
+      payload = await response.json();
+      if (payload && typeof payload === 'object' && payload.detail) {
+        message = payload.detail;
+      }
+    } catch (error) {
+      // Ignore JSON parsing errors for unsuccessful responses
+    }
+    const error = new Error(message);
+    error.status = response.status;
+    error.payload = payload;
+    throw error;
   }
+
+  if (response.status === 204) {
+    return null;
+  }
+
   return response.json();
 }
 
@@ -208,6 +348,10 @@ async function handleDeleteNode(node, button) {
     return;
   }
 
+  if (!ensureAdminAccess()) {
+    return;
+  }
+
   const confirmation = window.confirm(
     `Are you sure you want to delete the node "${node.id}"? This action cannot be undone.`
   );
@@ -222,19 +366,23 @@ async function handleDeleteNode(node, button) {
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}/unregister/${encodeURIComponent(node.id)}`, {
-      method: 'DELETE',
-    });
-    if (!response.ok) {
-      const errorPayload = await response.json().catch(() => ({}));
-      const message = errorPayload.detail || 'Failed to delete node';
-      throw new Error(message);
-    }
+    await fetchJson(
+      `/unregister/${encodeURIComponent(node.id)}`,
+      fetchOptions('DELETE', undefined, { requireAdmin: true })
+    );
     showToast(`Node ${node.id} deleted`);
     await loadNodes({ userInitiated: true });
   } catch (error) {
     console.error('Failed to delete node', error);
-    showToast(error.message || 'Failed to delete node');
+    if (error.status === 403) {
+      lockAdminTools({
+        notify: true,
+        message: 'Your admin session has expired. Please sign in again.',
+        state: 'error',
+      });
+    } else {
+      showToast(error.message || 'Failed to delete node');
+    }
   } finally {
     if (button) {
       button.disabled = false;
@@ -247,6 +395,10 @@ async function handleAddNode(event) {
   event.preventDefault();
 
   if (!addNodeForm) {
+    return;
+  }
+
+  if (!ensureAdminAccess()) {
     return;
   }
 
@@ -293,23 +445,98 @@ async function handleAddNode(event) {
   }
 
   try {
-    const response = await fetch(`${API_BASE_URL}/register`, fetchOptions('POST', payload));
-    if (!response.ok) {
-      const errorPayload = await response.json().catch(() => ({}));
-      const message = errorPayload.detail || 'Failed to register node';
-      throw new Error(message);
-    }
+    await fetchJson('/register', fetchOptions('POST', payload, { requireAdmin: true }));
     showToast('Node registered successfully');
     addNodeForm.reset();
     await loadNodes({ userInitiated: true });
   } catch (error) {
     console.error('Failed to register node', error);
-    showToast(error.message || 'Failed to register node');
+    if (error.status === 403) {
+      lockAdminTools({
+        notify: true,
+        message: 'Your admin session has expired. Please sign in again.',
+        state: 'error',
+      });
+    } else {
+      showToast(error.message || 'Failed to register node');
+    }
   } finally {
     if (addNodeSubmit) {
       addNodeSubmit.disabled = false;
       addNodeSubmit.textContent = addNodeSubmit.dataset.originalLabel || 'Register node';
       delete addNodeSubmit.dataset.originalLabel;
+    }
+  }
+}
+
+async function verifyAdminToken(token) {
+  try {
+    await fetchJson('/admin/ping', fetchOptions('GET', undefined, { requireAdmin: true, adminTokenOverride: token }));
+    return true;
+  } catch (error) {
+    if (error.status === 403) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function initialiseAdminAccess() {
+  const storedToken = getStoredAdminToken();
+  if (!storedToken) {
+    lockAdminTools();
+    return;
+  }
+
+  showAdminLoginFeedback('Validating saved admin token…', 'info');
+
+  try {
+    const isValid = await verifyAdminToken(storedToken);
+    if (isValid) {
+      unlockAdminTools(storedToken, { notify: false });
+    } else {
+      lockAdminTools({ message: 'Saved token is no longer valid. Please sign in again.', state: 'error' });
+    }
+  } catch (error) {
+    console.error('Failed to validate stored admin token', error);
+    lockAdminTools({ state: 'error', message: 'Unable to validate admin token. Please try again.' });
+  }
+}
+
+async function handleAdminLogin(event) {
+  event.preventDefault();
+
+  if (!adminTokenInput || !adminLoginSubmit) {
+    return;
+  }
+
+  const token = adminTokenInput.value.trim();
+  if (!token) {
+    showAdminLoginFeedback('Please enter an admin access token.', 'error');
+    adminTokenInput.focus();
+    return;
+  }
+
+  adminLoginSubmit.disabled = true;
+  adminLoginSubmit.dataset.originalLabel = adminLoginSubmit.textContent;
+  adminLoginSubmit.textContent = 'Checking…';
+  showAdminLoginFeedback('Verifying token…', 'info');
+
+  try {
+    const isValid = await verifyAdminToken(token);
+    if (!isValid) {
+      showAdminLoginFeedback('Invalid admin token. Please try again.', 'error');
+      return;
+    }
+    unlockAdminTools(token);
+  } catch (error) {
+    console.error('Failed to verify admin token', error);
+    showAdminLoginFeedback('Unable to verify token. Please try again.', 'error');
+  } finally {
+    if (adminLoginSubmit) {
+      adminLoginSubmit.disabled = false;
+      adminLoginSubmit.textContent = adminLoginSubmit.dataset.originalLabel || 'Unlock';
+      delete adminLoginSubmit.dataset.originalLabel;
     }
   }
 }
@@ -538,7 +765,22 @@ if (addNodeForm) {
   addNodeForm.addEventListener('submit', handleAddNode);
 }
 
+if (adminLoginForm) {
+  adminLoginForm.addEventListener('submit', handleAdminLogin);
+}
+
+if (adminLockButton) {
+  adminLockButton.addEventListener('click', () => {
+    lockAdminTools({
+      notify: true,
+      message: 'Admin access locked. Enter a token to continue.',
+      state: 'info',
+    });
+  });
+}
+
 refreshButton.addEventListener('click', () => loadNodes({ userInitiated: true }));
 
+initialiseAdminAccess();
 loadNodes();
 setInterval(() => loadNodes(), REFRESH_INTERVAL);

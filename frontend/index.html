@@ -20,31 +20,31 @@
       </div>
     </header>
 
-    <main>
+    <main class="page-content">
       <section class="summary" aria-label="Node summary">
-        <div class="summary-card" data-status="total">
+        <div class="summary-card card" data-status="total">
           <span class="summary-label">Total</span>
           <span id="summary-total" class="summary-value">0</span>
         </div>
-        <div class="summary-card" data-status="online">
+        <div class="summary-card card" data-status="online">
           <span class="summary-label">Online</span>
           <span id="summary-online" class="summary-value">0</span>
         </div>
-        <div class="summary-card" data-status="busy">
+        <div class="summary-card card" data-status="busy">
           <span class="summary-label">Busy</span>
           <span id="summary-busy" class="summary-value">0</span>
         </div>
-        <div class="summary-card" data-status="offline">
+        <div class="summary-card card" data-status="offline">
           <span class="summary-label">Offline</span>
           <span id="summary-offline" class="summary-value">0</span>
         </div>
-        <div class="summary-card last-updated">
+        <div class="summary-card card last-updated">
           <span class="summary-label">Last updated</span>
           <span id="summary-updated" class="summary-value">--</span>
         </div>
       </section>
 
-      <section class="filters" aria-label="Node filters">
+      <section class="filters card" aria-label="Node filters">
         <h2 class="section-title">Filters</h2>
         <form id="filters-form" class="filters-form">
           <label class="filter-field">
@@ -87,7 +87,7 @@
         </form>
       </section>
 
-      <section class="table-section" aria-label="Node details">
+      <section class="table-section card" aria-label="Node details">
         <div class="table-header">
           <h2>Nodes</h2>
           <p class="table-subtitle">
@@ -123,13 +123,45 @@
           </table>
         </div>
       </section>
-      <section class="admin-section" aria-label="Admin portal">
-        <div class="admin-card">
-          <h2 class="section-title">Admin portal</h2>
-          <p class="admin-description">
-            Register new nodes or remove stale entries directly from the dashboard. Fields left blank
-            will fall back to sensible defaults provided by the proxy service.
-          </p>
+      <section id="admin-section" class="admin-section" aria-label="Admin portal">
+        <div id="admin-login-card" class="card admin-card">
+          <div class="admin-card__header">
+            <div>
+              <h2 class="section-title">Admin portal</h2>
+              <p class="admin-description">
+                Access to register or delete nodes requires an admin token.
+              </p>
+            </div>
+          </div>
+          <form id="admin-login-form" class="admin-form admin-form--compact">
+            <label class="form-field">
+              <span class="form-label">Access token</span>
+              <input
+                type="password"
+                id="admin-token"
+                name="token"
+                autocomplete="current-password"
+                required
+              />
+            </label>
+            <div class="form-actions">
+              <button type="submit" class="button" id="admin-login-submit">Unlock</button>
+            </div>
+          </form>
+          <p class="admin-hint" id="admin-login-feedback" aria-live="polite"></p>
+        </div>
+
+        <div id="admin-tools-card" class="card admin-card" hidden>
+          <div class="admin-card__header">
+            <div>
+              <h2 class="section-title">Admin tools</h2>
+              <p class="admin-description">
+                Register new nodes or remove stale entries directly from the dashboard. Fields left
+                blank will fall back to sensible defaults provided by the proxy service.
+              </p>
+            </div>
+            <button type="button" class="link-button" id="admin-lock-button">Sign out</button>
+          </div>
           <form id="add-node-form" class="admin-form">
             <div class="form-grid">
               <label class="form-field">

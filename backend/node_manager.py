@@ -2,12 +2,14 @@ import csv
 import io
 import json
 import logging
+import os
+import secrets
 import uuid
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import Response
 
 router = APIRouter()
@@ -17,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 NODE_RESOURCES_CSV = Path(__file__).resolve().parent / "node_resources.csv"
 NODE_SESSION_COUNTS_KEY = "node_session_counts"
+ADMIN_TOKEN_ENV_VAR = "ADMIN_API_TOKEN"
 CSV_TEMPLATE_HEADERS = [
     "id",
     "type",
@@ -36,6 +39,8 @@ CSV_TEMPLATE_HEADERS = [
 
 SUPPORTED_DEVICE_POOLS = {"ios", "android", "android-emulator", "web"}
 
+_ADMIN_API_TOKEN = os.getenv(ADMIN_TOKEN_ENV_VAR)
+
 
 class NodeRegistrationError(Exception):
     """Raised when a node cannot be registered."""
@@ -46,6 +51,30 @@ def _strip_or_none(value: Optional[str]) -> Optional[str]:
         return None
     value = value.strip()
     return value or None
+
+
+def _verify_admin_token(admin_token: Optional[str]) -> None:
+    if not _ADMIN_API_TOKEN:
+        return
+
+    if not admin_token:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    try:
+        is_valid = secrets.compare_digest(admin_token, _ADMIN_API_TOKEN)
+    except Exception:
+        is_valid = False
+
+    if not is_valid:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+
+def require_admin(
+    admin_token: Optional[str] = Header(None, alias="X-Admin-Token")
+) -> None:
+    """FastAPI dependency used to guard admin-only endpoints."""
+
+    _verify_admin_token(admin_token)
 
 
 async def _physical_udid_exists(udid: str, *, exclude_node_id: Optional[str] = None) -> bool:
@@ -297,7 +326,7 @@ def generate_csv_template() -> str:
     return output.getvalue()
 
 @router.post("/register")
-async def register_node(node: Dict):
+async def register_node(node: Dict, _: None = Depends(require_admin)):
     try:
         stored_node = await _store_node(node)
     except NodeRegistrationError as exc:
@@ -307,7 +336,7 @@ async def register_node(node: Dict):
 
 
 @router.post("/register/from-csv")
-async def register_nodes_from_csv():
+async def register_nodes_from_csv(_: None = Depends(require_admin)):
     summary = await load_nodes_from_csv()
     return {"message": "Nodes processed from CSV", **summary}
 
@@ -321,13 +350,18 @@ async def get_nodes_template():
     return Response(content=content, media_type="text/csv", headers=headers)
 
 @router.delete("/unregister/{node_id}")
-async def unregister_node(node_id: str):
+async def unregister_node(node_id: str, _: None = Depends(require_admin)):
     deleted = await redis_client.hdel("nodes", node_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Node not found")
     await redis_client.hdel(NODE_SESSION_COUNTS_KEY, node_id)
     logger.info("Unregistered node %s", node_id)
     return {"message": f"Node {node_id} unregistered"}
+
+
+@router.get("/admin/ping")
+async def admin_ping(_: None = Depends(require_admin)):
+    return {"message": "Admin access confirmed"}
 
 @router.get("/nodes")
 async def list_nodes():
