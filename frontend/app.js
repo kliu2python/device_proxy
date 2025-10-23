@@ -25,6 +25,28 @@ const paginationPrev = document.getElementById('pagination-prev');
 const paginationNext = document.getElementById('pagination-next');
 const addNodeForm = document.getElementById('add-node-form');
 const addNodeSubmit = document.getElementById('add-node-submit');
+const cancelEditButton = document.getElementById('cancel-edit-button');
+const editModeHint = document.getElementById('edit-mode-hint');
+const editModeNodeLabel = document.getElementById('edit-mode-node-label');
+const ADD_NODE_SUBMIT_DEFAULT_LABEL = addNodeSubmit
+  ? addNodeSubmit.textContent || 'Register node'
+  : 'Register node';
+const NODE_FORM_FIELD_NAMES = [
+  'id',
+  'type',
+  'udid',
+  'host',
+  'port',
+  'protocol',
+  'path',
+  'max_sessions',
+  'active_sessions',
+  'status',
+  'platform',
+  'platform_version',
+  'device_name',
+  'resources',
+];
 const adminToolsTrigger = document.getElementById('admin-tools-trigger');
 const adminLoginForm = document.getElementById('admin-login-form');
 const adminUsernameInput = document.getElementById('admin-username');
@@ -55,6 +77,7 @@ let currentPage = 1;
 let adminToken = '';
 let isAdminUnlocked = false;
 let isFiltersMenuOpen = false;
+let editingNodeId = '';
 
 const REFRESH_INTERVAL = 15000;
 const PAGE_SIZE = 5;
@@ -134,6 +157,141 @@ function showAdminLoginFeedback(message, state = 'info') {
   adminLoginFeedback.dataset.state = state;
 }
 
+function getNodeFormField(name) {
+  if (!addNodeForm || !addNodeForm.elements) {
+    return null;
+  }
+  return addNodeForm.elements.namedItem(name);
+}
+
+function populateNodeFormFields(node) {
+  if (!addNodeForm) {
+    return;
+  }
+
+  NODE_FORM_FIELD_NAMES.forEach((fieldName) => {
+    const field = getNodeFormField(fieldName);
+    if (!field) {
+      return;
+    }
+
+    let value = '';
+
+    if (fieldName === 'resources') {
+      const resources = node?.resources;
+      if (!resources) {
+        value = '';
+      } else if (typeof resources === 'string') {
+        value = resources;
+      } else {
+        try {
+          value = JSON.stringify(resources, null, 2);
+        } catch (error) {
+          console.warn('Failed to serialise resources for editing', error);
+          value = '';
+        }
+      }
+    } else {
+      const rawValue = node?.[fieldName];
+      if (rawValue == null) {
+        value = '';
+      } else if (typeof rawValue === 'number') {
+        value = String(rawValue);
+      } else {
+        value = String(rawValue);
+      }
+    }
+
+    if (fieldName === 'status' && !value) {
+      value = 'online';
+    }
+
+    if (
+      field instanceof HTMLInputElement ||
+      field instanceof HTMLSelectElement ||
+      field instanceof HTMLTextAreaElement
+    ) {
+      field.value = value;
+    }
+  });
+}
+
+function clearEditMode({ resetForm = true } = {}) {
+  editingNodeId = '';
+
+  if (!addNodeForm) {
+    return;
+  }
+
+  if (resetForm) {
+    addNodeForm.reset();
+  }
+
+  addNodeForm.dataset.mode = 'create';
+  addNodeForm.removeAttribute('data-node-id');
+
+  const idField = getNodeFormField('id');
+  if (idField instanceof HTMLInputElement) {
+    idField.removeAttribute('readonly');
+    idField.removeAttribute('aria-readonly');
+    idField.removeAttribute('title');
+  }
+
+  if (addNodeSubmit) {
+    addNodeSubmit.textContent = ADD_NODE_SUBMIT_DEFAULT_LABEL;
+    delete addNodeSubmit.dataset.originalLabel;
+  }
+
+  if (cancelEditButton) {
+    cancelEditButton.hidden = true;
+  }
+
+  if (editModeHint) {
+    editModeHint.hidden = true;
+  }
+
+  if (editModeNodeLabel) {
+    editModeNodeLabel.textContent = '';
+  }
+}
+
+function enterEditMode(node, { trigger } = {}) {
+  if (!addNodeForm || !node || !node.id) {
+    return;
+  }
+
+  addNodeForm.reset();
+  populateNodeFormFields(node);
+
+  editingNodeId = node.id;
+  addNodeForm.dataset.mode = 'edit';
+  addNodeForm.dataset.nodeId = node.id;
+
+  const idField = getNodeFormField('id');
+  if (idField instanceof HTMLInputElement) {
+    idField.value = node.id;
+    idField.setAttribute('readonly', 'true');
+    idField.setAttribute('aria-readonly', 'true');
+    idField.title = 'Node ID cannot be changed while editing.';
+  }
+
+  if (addNodeSubmit) {
+    addNodeSubmit.textContent = 'Update node';
+  }
+
+  if (cancelEditButton) {
+    cancelEditButton.hidden = false;
+  }
+
+  if (editModeHint && editModeNodeLabel) {
+    editModeHint.hidden = false;
+    editModeNodeLabel.textContent = node.id;
+  }
+
+  openAdminModal('tools', { trigger });
+  showToast(`Editing node ${node.id}. Update the details and save when ready.`);
+}
+
 function setAdminModalView(view) {
   if (!adminModal) {
     return;
@@ -174,7 +332,9 @@ function focusAdminModal(view) {
     return;
   }
 
-  const firstField = addNodeForm?.querySelector('input:not([disabled]), select:not([disabled]), textarea:not([disabled])');
+  const firstField = addNodeForm?.querySelector(
+    'input:not([disabled]):not([readonly]), select:not([disabled]), textarea:not([disabled]):not([readonly])'
+  );
   if (firstField && !firstField.disabled) {
     firstField.focus();
   }
@@ -241,6 +401,7 @@ function lockAdminTools({
   const previousToken = adminToken;
   adminToken = '';
   clearStoredAdminToken();
+  clearEditMode();
 
   if (previousToken && revokeSession) {
     fetch(`${API_BASE_URL}/admin/logout`, fetchOptions('POST', { token: previousToken })).catch(
@@ -341,6 +502,19 @@ function ensureAdminAccess({ focus = true } = {}) {
     }
   }
   return false;
+}
+
+function handleEditNode(node, trigger) {
+  if (!node || !node.id) {
+    showToast('Unable to edit node without an identifier.');
+    return;
+  }
+
+  if (!ensureAdminAccess()) {
+    return;
+  }
+
+  enterEditMode(node, { trigger });
 }
 
 function fetchOptions(method = 'GET', payload, { requireAdmin = false, adminTokenOverride } = {}) {
@@ -628,6 +802,9 @@ async function handleDeleteNode(node, button) {
       fetchOptions('DELETE', undefined, { requireAdmin: true })
     );
     showToast(`Node ${node.id} deleted`);
+    if (editingNodeId === node.id) {
+      clearEditMode();
+    }
     await loadNodes({ userInitiated: true });
   } catch (error) {
     console.error('Failed to delete node', error);
@@ -661,6 +838,8 @@ async function handleAddNode(event) {
 
   const formData = new FormData(addNodeForm);
   const payload = {};
+  const isEditing = addNodeForm.dataset.mode === 'edit' && Boolean(editingNodeId);
+  const submitInProgressLabel = isEditing ? 'Updating…' : 'Registering…';
 
   for (const [key, rawValue] of formData.entries()) {
     if (rawValue == null) {
@@ -695,16 +874,25 @@ async function handleAddNode(event) {
     payload[key] = value;
   }
 
+  if (isEditing) {
+    payload.id = editingNodeId;
+  }
+
   if (addNodeSubmit) {
     addNodeSubmit.disabled = true;
     addNodeSubmit.dataset.originalLabel = addNodeSubmit.textContent;
-    addNodeSubmit.textContent = 'Registering…';
+    addNodeSubmit.textContent = submitInProgressLabel;
   }
 
   try {
     await fetchJson('/register', fetchOptions('POST', payload, { requireAdmin: true }));
-    showToast('Node registered successfully');
-    addNodeForm.reset();
+    if (isEditing) {
+      showToast(`Node ${editingNodeId} updated successfully`);
+      clearEditMode();
+    } else {
+      showToast('Node registered successfully');
+      addNodeForm.reset();
+    }
     await loadNodes({ userInitiated: true });
   } catch (error) {
     console.error('Failed to register node', error);
@@ -720,8 +908,12 @@ async function handleAddNode(event) {
   } finally {
     if (addNodeSubmit) {
       addNodeSubmit.disabled = false;
-      addNodeSubmit.textContent = addNodeSubmit.dataset.originalLabel || 'Register node';
-      delete addNodeSubmit.dataset.originalLabel;
+      if (addNodeSubmit.dataset.originalLabel) {
+        addNodeSubmit.textContent = addNodeSubmit.dataset.originalLabel;
+        delete addNodeSubmit.dataset.originalLabel;
+      } else {
+        addNodeSubmit.textContent = ADD_NODE_SUBMIT_DEFAULT_LABEL;
+      }
     }
   }
 }
@@ -1012,6 +1204,7 @@ function renderRows(nodes) {
     ];
 
     if (isAdminUnlocked && adminToken) {
+      actions.push(`<button class="action-button" data-edit="${node.id}">Edit</button>`);
       actions.push(`<button class="danger-button" data-delete="${node.id}">Delete</button>`);
     }
 
@@ -1039,6 +1232,11 @@ function renderRows(nodes) {
       trigger.title = 'Session details are only available when the node is online.';
     } else {
       trigger.addEventListener('click', () => showNodeDetails(node, trigger));
+    }
+
+    const editButton = tr.querySelector('button[data-edit]');
+    if (editButton) {
+      editButton.addEventListener('click', () => handleEditNode(node, editButton));
     }
 
     const deleteButton = tr.querySelector('button[data-delete]');
@@ -1091,6 +1289,13 @@ async function loadNodes({ userInitiated = false } = {}) {
   try {
     const nodeMap = await fetchJson('/nodes');
     allNodes = Object.values(nodeMap);
+    if (editingNodeId) {
+      const nodeStillExists = allNodes.some((node) => node.id === editingNodeId);
+      if (!nodeStillExists) {
+        clearEditMode();
+        showToast('The node you were editing is no longer available.');
+      }
+    }
     filteredNodes = applyFilters(allNodes);
     if (isInitialLoad) {
       currentPage = 1;
@@ -1130,7 +1335,18 @@ if (filtersReset) {
   filtersReset.addEventListener('click', resetFilters);
 }
 
+if (cancelEditButton) {
+  cancelEditButton.addEventListener('click', () => {
+    const wasEditing = Boolean(editingNodeId);
+    clearEditMode();
+    if (wasEditing) {
+      showToast('Edit cancelled. Ready to register a new node.');
+    }
+  });
+}
+
 if (addNodeForm) {
+  clearEditMode();
   addNodeForm.addEventListener('submit', handleAddNode);
 }
 

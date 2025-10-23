@@ -204,8 +204,13 @@
             <div class="admin-card__header">
               <div>
                 <p class="admin-description">
-                  Register new nodes or remove stale entries directly from the dashboard. Fields left
-                  blank will fall back to sensible defaults provided by the proxy service.
+                  Register new nodes, update existing entries or remove stale records directly from
+                  the dashboard. Fields left blank will fall back to sensible defaults provided by
+                  the proxy service.
+                </p>
+                <p class="admin-hint" id="edit-mode-hint" data-state="info" hidden>
+                  Editing node <span id="edit-mode-node-label"></span>. Changes will overwrite the
+                  existing configuration.
                 </p>
               </div>
               <button type="button" class="link-button" id="admin-lock-button">Sign out</button>
@@ -278,6 +283,14 @@
                 </label>
               </div>
               <div class="form-actions">
+                <button
+                  type="button"
+                  class="button button--secondary"
+                  id="cancel-edit-button"
+                  hidden
+                >
+                  Cancel edit
+                </button>
                 <button type="submit" class="button" id="add-node-submit">Register node</button>
               </div>
             </form>

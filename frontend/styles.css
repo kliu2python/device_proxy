@@ -802,6 +802,11 @@ body {
   min-height: 120px;
 }
 
+.admin-form input[readonly] {
+  background: rgba(15, 23, 42, 0.04);
+  cursor: not-allowed;
+}
+
 .form-actions {
   display: flex;
   justify-content: flex-end;
