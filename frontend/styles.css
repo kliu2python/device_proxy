@@ -80,13 +80,33 @@ body {
   box-shadow: 0 1px 2px var(--shadow);
 }
 
-.button:hover,
-.button:focus-visible {
+.button.button--secondary {
+  background: #eef2ff;
+  color: var(--accent);
+  border: 1px solid rgba(37, 99, 235, 0.4);
+  box-shadow: none;
+}
+
+.button.button--secondary:hover,
+.button.button--secondary:focus-visible {
+  background: #e0e7ff;
+  border-color: rgba(37, 99, 235, 0.55);
+  color: var(--accent-hover);
+}
+
+.button.button--secondary:active {
+  background: #c7d2fe;
+  border-color: rgba(37, 99, 235, 0.7);
+  transform: translateY(0);
+}
+
+.button:hover:not(.button--secondary),
+.button:focus-visible:not(.button--secondary) {
   background: var(--accent-hover);
   outline: none;
 }
 
-.button:active {
+.button:active:not(.button--secondary) {
   background: var(--accent-active);
   transform: translateY(1px);
 }
@@ -581,6 +601,93 @@ body {
   color: var(--text);
   transform: scale(1.05);
   outline: none;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+  z-index: 20;
+}
+
+.modal.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  backdrop-filter: blur(2px);
+}
+
+.modal__content {
+  position: relative;
+  background: var(--surface);
+  border-radius: 1.25rem;
+  box-shadow: 0 30px 60px -40px rgba(15, 23, 42, 0.45);
+  width: min(720px, 100%);
+  max-height: min(85vh, 720px);
+  overflow: auto;
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  transform: translateY(16px);
+  transition: transform 0.2s ease;
+}
+
+.modal.visible .modal__content {
+  transform: translateY(0);
+}
+
+.modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.modal__close {
+  appearance: none;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 1.75rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s ease, transform 0.15s ease;
+}
+
+.modal__close:hover,
+.modal__close:focus-visible {
+  color: var(--text);
+  transform: scale(1.05);
+  outline: none;
+}
+
+.modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.modal__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.modal__panel[hidden] {
+  display: none;
 }
 
 .admin-section {

@@ -17,6 +17,9 @@
       </div>
       <div class="actions">
         <button id="refresh-button" class="button">Refresh</button>
+        <button id="admin-tools-trigger" class="button button--secondary" type="button">
+          Add node
+        </button>
       </div>
     </header>
 
@@ -123,136 +126,149 @@
           </table>
         </div>
       </section>
-      <section id="admin-section" class="admin-section" aria-label="Admin portal">
-        <div id="admin-login-card" class="card admin-card">
-          <div class="admin-card__header">
-            <div>
-              <h2 class="section-title">Admin portal</h2>
-              <p class="admin-description">
-                Access to register or delete nodes requires administrator credentials. Only
-                authorised users should sign in.
-              </p>
-            </div>
-          </div>
-          <form id="admin-login-form" class="admin-form admin-form--compact">
-            <label class="form-field">
-              <span class="form-label">Username</span>
-              <input
-                type="text"
-                id="admin-username"
-                name="username"
-                autocomplete="username"
-                required
-              />
-            </label>
-            <label class="form-field">
-              <span class="form-label">Password</span>
-              <input
-                type="password"
-                id="admin-password"
-                name="password"
-                autocomplete="current-password"
-                required
-              />
-            </label>
-            <div class="form-actions">
-              <button type="submit" class="button" id="admin-login-submit">Sign in</button>
-            </div>
-          </form>
-          <p class="admin-hint" id="admin-login-feedback" aria-live="polite"></p>
-        </div>
-
-        <div id="admin-tools-card" class="card admin-card" hidden>
-          <div class="admin-card__header">
-            <div>
-              <h2 class="section-title">Admin tools</h2>
-              <p class="admin-description">
-                Register new nodes or remove stale entries directly from the dashboard. Fields left
-                blank will fall back to sensible defaults provided by the proxy service.
-              </p>
-            </div>
-            <button type="button" class="link-button" id="admin-lock-button">Sign out</button>
-          </div>
-          <form id="add-node-form" class="admin-form">
-            <div class="form-grid">
-              <label class="form-field">
-                <span class="form-label">Node ID</span>
-                <input type="text" name="id" placeholder="Optional unique identifier" />
-              </label>
-              <label class="form-field">
-                <span class="form-label">Type</span>
-                <input type="text" name="type" placeholder="physical, virtual…" />
-              </label>
-              <label class="form-field">
-                <span class="form-label">UDID</span>
-                <input type="text" name="udid" placeholder="Required for physical iOS" />
-              </label>
-              <label class="form-field">
-                <span class="form-label">Host</span>
-                <input type="text" name="host" placeholder="10.0.0.5" />
-              </label>
-              <label class="form-field">
-                <span class="form-label">Port</span>
-                <input type="number" name="port" placeholder="4723" min="0" />
-              </label>
-              <label class="form-field">
-                <span class="form-label">Protocol</span>
-                <input type="text" name="protocol" placeholder="http" />
-              </label>
-              <label class="form-field">
-                <span class="form-label">Path</span>
-                <input type="text" name="path" placeholder="/wd/hub" />
-              </label>
-              <label class="form-field">
-                <span class="form-label">Max sessions</span>
-                <input type="number" name="max_sessions" min="0" placeholder="1" />
-              </label>
-              <label class="form-field">
-                <span class="form-label">Active sessions</span>
-                <input type="number" name="active_sessions" min="0" placeholder="0" />
-              </label>
-              <label class="form-field">
-                <span class="form-label">Status</span>
-                <select name="status">
-                  <option value="online">Online</option>
-                  <option value="busy">Busy</option>
-                  <option value="offline">Offline</option>
-                </select>
-              </label>
-              <label class="form-field">
-                <span class="form-label">Platform</span>
-                <input type="text" name="platform" placeholder="iOS, Android…" />
-              </label>
-              <label class="form-field">
-                <span class="form-label">Platform version</span>
-                <input type="text" name="platform_version" placeholder="17.5" />
-              </label>
-              <label class="form-field">
-                <span class="form-label">Device name</span>
-                <input type="text" name="device_name" placeholder="Device label" />
-              </label>
-              <label class="form-field form-field--wide">
-                <span class="form-label">Resources JSON</span>
-                <textarea
-                  name="resources"
-                  rows="3"
-                  placeholder='{"session_data": {"platform": "iOS"}}'
-                ></textarea>
-              </label>
-            </div>
-            <div class="form-actions">
-              <button type="submit" class="button" id="add-node-submit">Register node</button>
-            </div>
-          </form>
-          <p class="admin-hint">
-            To delete a node, use the delete action in the table above. Nodes are removed immediately
-            after confirmation.
-          </p>
-        </div>
-      </section>
     </main>
 
     <div id="toast" role="status" aria-live="polite"></div>
+
+    <div
+      id="admin-modal"
+      class="modal"
+      role="dialog"
+      aria-modal="true"
+      aria-hidden="true"
+      aria-labelledby="admin-modal-title"
+    >
+      <div class="modal__backdrop" data-dismiss></div>
+      <div class="modal__content" role="document">
+        <div class="modal__header">
+          <h3 id="admin-modal-title">Admin sign in</h3>
+          <button type="button" class="modal__close" data-dismiss aria-label="Close admin window">
+            &times;
+          </button>
+        </div>
+        <div class="modal__body">
+          <section id="admin-login-panel" class="modal__panel" aria-label="Admin sign in">
+            <p class="admin-description">
+              Access to register or delete nodes requires administrator credentials. Only authorised
+              users should sign in.
+            </p>
+            <form id="admin-login-form" class="admin-form admin-form--compact">
+              <label class="form-field">
+                <span class="form-label">Username</span>
+                <input
+                  type="text"
+                  id="admin-username"
+                  name="username"
+                  autocomplete="username"
+                  required
+                />
+              </label>
+              <label class="form-field">
+                <span class="form-label">Password</span>
+                <input
+                  type="password"
+                  id="admin-password"
+                  name="password"
+                  autocomplete="current-password"
+                  required
+                />
+              </label>
+              <div class="form-actions">
+                <button type="submit" class="button" id="admin-login-submit">Sign in</button>
+              </div>
+            </form>
+            <p class="admin-hint" id="admin-login-feedback" aria-live="polite"></p>
+          </section>
+
+          <section id="admin-tools-panel" class="modal__panel" aria-label="Admin tools" hidden>
+            <div class="admin-card__header">
+              <div>
+                <p class="admin-description">
+                  Register new nodes or remove stale entries directly from the dashboard. Fields left
+                  blank will fall back to sensible defaults provided by the proxy service.
+                </p>
+              </div>
+              <button type="button" class="link-button" id="admin-lock-button">Sign out</button>
+            </div>
+            <form id="add-node-form" class="admin-form">
+              <div class="form-grid">
+                <label class="form-field">
+                  <span class="form-label">Node ID</span>
+                  <input type="text" name="id" placeholder="Optional unique identifier" />
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Type</span>
+                  <input type="text" name="type" placeholder="physical, virtual…" />
+                </label>
+                <label class="form-field">
+                  <span class="form-label">UDID</span>
+                  <input type="text" name="udid" placeholder="Required for physical iOS" />
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Host</span>
+                  <input type="text" name="host" placeholder="10.0.0.5" />
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Port</span>
+                  <input type="number" name="port" placeholder="4723" min="0" />
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Protocol</span>
+                  <input type="text" name="protocol" placeholder="http" />
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Path</span>
+                  <input type="text" name="path" placeholder="/wd/hub" />
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Max sessions</span>
+                  <input type="number" name="max_sessions" min="0" placeholder="1" />
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Active sessions</span>
+                  <input type="number" name="active_sessions" min="0" placeholder="0" />
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Status</span>
+                  <select name="status">
+                    <option value="online">Online</option>
+                    <option value="busy">Busy</option>
+                    <option value="offline">Offline</option>
+                  </select>
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Platform</span>
+                  <input type="text" name="platform" placeholder="iOS, Android…" />
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Platform version</span>
+                  <input type="text" name="platform_version" placeholder="17.5" />
+                </label>
+                <label class="form-field">
+                  <span class="form-label">Device name</span>
+                  <input type="text" name="device_name" placeholder="Device label" />
+                </label>
+                <label class="form-field form-field--wide">
+                  <span class="form-label">Resources JSON</span>
+                  <textarea
+                    name="resources"
+                    rows="3"
+                    placeholder='{"session_data": {"platform": "iOS"}}'
+                  ></textarea>
+                </label>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="button" id="add-node-submit">Register node</button>
+              </div>
+            </form>
+            <p class="admin-hint">
+              To delete a node, use the delete action in the table above. Nodes are removed immediately
+              after confirmation.
+            </p>
+          </section>
+        </div>
+      </div>
+    </div>
 
     <div
       id="details-modal"
