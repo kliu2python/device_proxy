@@ -10,10 +10,7 @@
   <body>
     <header class="page-header">
       <div class="branding">
-        <h1>Device Proxy Nodes</h1>
-        <p class="subtitle">
-          Monitor Appium/Selenium nodes and inspect connection details with a single click.
-        </p>
+        <h1>device proxy nodes</h1>
       </div>
       <div class="actions">
         <button id="refresh-button" class="button">Refresh</button>
@@ -47,56 +44,67 @@
         </div>
       </section>
 
-      <section class="filters card" aria-label="Node filters">
-        <h2 class="section-title">Filters</h2>
-        <form id="filters-form" class="filters-form">
-          <label class="filter-field">
-            <span class="filter-label">Search</span>
-            <input
-              id="filter-search"
-              name="search"
-              type="search"
-              placeholder="Node ID, device name or host"
-            />
-          </label>
-          <label class="filter-field">
-            <span class="filter-label">Platform</span>
-            <select id="filter-platform" name="platform">
-              <option value="">All</option>
-              <option value="ios">iOS</option>
-              <option value="android">Android</option>
-              <option value="android-emulator">Android Emulator</option>
-              <option value="web">Web</option>
-            </select>
-          </label>
-          <label class="filter-field">
-            <span class="filter-label">Platform version</span>
-            <input
-              id="filter-platform-version"
-              name="platform_version"
-              type="text"
-              placeholder="e.g. 17.5"
-            />
-          </label>
-          <label class="filter-field">
-            <span class="filter-label">Status</span>
-            <select id="filter-status" name="status">
-              <option value="">All</option>
-              <option value="online">Online</option>
-              <option value="busy">Busy</option>
-              <option value="offline">Offline</option>
-            </select>
-          </label>
-        </form>
+      <section class="filters" aria-label="Node filters">
+        <div class="filters-dropdown">
+          <button
+            type="button"
+            class="filters-toggle button button--secondary"
+            id="filters-toggle"
+            aria-expanded="false"
+            aria-controls="filters-menu"
+          >
+            Filters
+          </button>
+          <div id="filters-menu" class="filters-menu card" hidden>
+            <form id="filters-form" class="filters-form">
+              <label class="filter-field">
+                <span class="filter-label">Search</span>
+                <input
+                  id="filter-search"
+                  name="search"
+                  type="search"
+                  placeholder="Node ID, device name or host"
+                />
+              </label>
+              <label class="filter-field">
+                <span class="filter-label">Platform</span>
+                <select id="filter-platform" name="platform">
+                  <option value="">All</option>
+                  <option value="ios">iOS</option>
+                  <option value="android">Android</option>
+                  <option value="android-emulator">Android Emulator</option>
+                  <option value="web">Web</option>
+                </select>
+              </label>
+              <label class="filter-field">
+                <span class="filter-label">Platform version</span>
+                <input
+                  id="filter-platform-version"
+                  name="platform_version"
+                  type="text"
+                  placeholder="e.g. 17.5"
+                />
+              </label>
+              <label class="filter-field">
+                <span class="filter-label">Status</span>
+                <select id="filter-status" name="status">
+                  <option value="">All</option>
+                  <option value="online">Online</option>
+                  <option value="busy">Busy</option>
+                  <option value="offline">Offline</option>
+                </select>
+              </label>
+              <div class="filters-actions">
+                <button type="button" id="filters-reset" class="link-button">Reset filters</button>
+              </div>
+            </form>
+          </div>
+        </div>
       </section>
 
       <section class="table-section card" aria-label="Node details">
         <div class="table-header">
           <h2>Nodes</h2>
-          <p class="table-subtitle">
-            Use the filters above to narrow down the list and click the details button to view
-            node information for manual copy.
-          </p>
         </div>
         <div class="table-wrapper">
           <div

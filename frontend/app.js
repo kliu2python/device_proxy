@@ -15,6 +15,10 @@ const filterSearch = document.getElementById('filter-search');
 const filterPlatform = document.getElementById('filter-platform');
 const filterPlatformVersion = document.getElementById('filter-platform-version');
 const filterStatus = document.getElementById('filter-status');
+const filtersToggle = document.getElementById('filters-toggle');
+const filtersMenu = document.getElementById('filters-menu');
+const filtersReset = document.getElementById('filters-reset');
+const filtersDropdown = document.querySelector('.filters-dropdown');
 const addNodeForm = document.getElementById('add-node-form');
 const addNodeSubmit = document.getElementById('add-node-submit');
 const adminToolsTrigger = document.getElementById('admin-tools-trigger');
@@ -43,6 +47,7 @@ let isInitialLoad = true;
 let allNodes = [];
 let adminToken = '';
 let isAdminUnlocked = false;
+let isFiltersMenuOpen = false;
 
 const REFRESH_INTERVAL = 15000;
 
@@ -368,12 +373,66 @@ function deriveStatus(node) {
   return baseStatus;
 }
 
+function setFiltersMenuOpen(open) {
+  if (!filtersToggle || !filtersMenu) {
+    return;
+  }
+
+  isFiltersMenuOpen = Boolean(open);
+  filtersToggle.setAttribute('aria-expanded', String(isFiltersMenuOpen));
+  filtersMenu.hidden = !isFiltersMenuOpen;
+}
+
+function toggleFiltersMenu() {
+  setFiltersMenuOpen(!isFiltersMenuOpen);
+}
+
+function handleFiltersMenuDocumentClick(event) {
+  if (!isFiltersMenuOpen) {
+    return;
+  }
+
+  if (filtersDropdown?.contains(event.target)) {
+    return;
+  }
+
+  setFiltersMenuOpen(false);
+}
+
+function handleFiltersMenuKeydown(event) {
+  if (event.key !== 'Escape' || !isFiltersMenuOpen) {
+    return;
+  }
+
+  event.preventDefault();
+  setFiltersMenuOpen(false);
+  filtersToggle?.focus();
+}
+
+function resetFilters() {
+  if (!filterForm) {
+    return;
+  }
+
+  filterForm.reset();
+  handleFiltersChange();
+  setFiltersMenuOpen(false);
+}
+
 function filtersAreActive() {
   const search = normaliseText(filterSearch?.value || '');
   const platform = normaliseText(filterPlatform?.value || '');
   const platformVersion = normaliseText(filterPlatformVersion?.value || '');
   const status = normaliseText(filterStatus?.value || '');
   return Boolean(search || platform || platformVersion || status);
+}
+
+function updateFiltersToggleState() {
+  if (!filtersToggle) {
+    return;
+  }
+
+  filtersToggle.classList.toggle('button--active', filtersAreActive());
 }
 
 function applyFilters(nodes) {
@@ -463,6 +522,7 @@ function handleFiltersChange() {
   const filteredNodes = applyFilters(allNodes);
   renderRows(filteredNodes);
   updateSummary(allNodes, filteredNodes);
+  updateFiltersToggleState();
 }
 
 async function handleDeleteNode(node, button) {
@@ -944,6 +1004,7 @@ async function loadNodes({ userInitiated = false } = {}) {
     const filtered = applyFilters(allNodes);
     renderRows(filtered);
     updateSummary(allNodes, filtered);
+    updateFiltersToggleState();
   } catch (error) {
     console.error('Failed to load nodes', error);
     if (!hasExistingRows) {
@@ -962,6 +1023,18 @@ async function loadNodes({ userInitiated = false } = {}) {
 if (filterForm) {
   filterForm.addEventListener('input', handleFiltersChange);
   filterForm.addEventListener('change', handleFiltersChange);
+}
+
+if (filtersToggle && filtersMenu) {
+  filtersToggle.addEventListener('click', toggleFiltersMenu);
+  document.addEventListener('click', handleFiltersMenuDocumentClick);
+  document.addEventListener('keydown', handleFiltersMenuKeydown);
+  setFiltersMenuOpen(false);
+  updateFiltersToggleState();
+}
+
+if (filtersReset) {
+  filtersReset.addEventListener('click', resetFilters);
 }
 
 if (addNodeForm) {
