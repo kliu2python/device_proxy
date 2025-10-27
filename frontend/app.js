@@ -10,6 +10,8 @@ const summaryBusy = document.getElementById('summary-busy');
 const summaryUpdated = document.getElementById('summary-updated');
 const detailsModal = document.getElementById('details-modal');
 const detailsBody = document.getElementById('details-modal-body');
+const detailsActions = document.getElementById('details-modal-actions');
+const detailsOpenStfButton = document.getElementById('details-open-stf');
 const filterForm = document.getElementById('filters-form');
 const filterSearch = document.getElementById('filter-search');
 const filterPlatform = document.getElementById('filter-platform');
@@ -78,12 +80,61 @@ let adminToken = '';
 let isAdminUnlocked = false;
 let isFiltersMenuOpen = false;
 let editingNodeId = '';
+let detailsModalNode = null;
 
 const REFRESH_INTERVAL = 15000;
 const PAGE_SIZE = 5;
 
 const STATUS_PRIORITY = ['busy', 'offline', 'online'];
-const API_BASE_URL = 'http://10.160.24.110:8080';
+const DEFAULT_API_PORT = 8080;
+
+function deriveApiBaseUrl() {
+  const overrides = [];
+
+  if (typeof window !== 'undefined') {
+    if (typeof window.API_BASE_URL === 'string') {
+      overrides.push(window.API_BASE_URL);
+    }
+
+    if (window.appConfig && typeof window.appConfig.apiBaseUrl === 'string') {
+      overrides.push(window.appConfig.apiBaseUrl);
+    }
+  }
+
+  if (document && document.body) {
+    const dataAttribute = document.body.getAttribute('data-api-base-url');
+    if (typeof dataAttribute === 'string') {
+      overrides.push(dataAttribute);
+    }
+  }
+
+  for (const candidate of overrides) {
+    const trimmed = typeof candidate === 'string' ? candidate.trim() : '';
+    if (trimmed) {
+      return trimmed.replace(/\/+$/, '');
+    }
+  }
+
+  const protocol =
+    typeof window !== 'undefined' && typeof window.location?.protocol === 'string'
+      ? window.location.protocol
+      : 'http:';
+  const isHttpProtocol = protocol.startsWith('http');
+  const safeProtocol = isHttpProtocol ? protocol : 'http:';
+
+  let hostname =
+    typeof window !== 'undefined' && typeof window.location?.hostname === 'string'
+      ? window.location.hostname
+      : '';
+
+  if (!hostname) {
+    hostname = '127.0.0.1';
+  }
+
+  return `${safeProtocol}//${hostname}:${DEFAULT_API_PORT}`;
+}
+
+const API_BASE_URL = deriveApiBaseUrl();
 const ADMIN_TOKEN_STORAGE_KEY = 'deviceProxyAdminToken';
 const normalisedPathname = window.location.pathname.replace(/\/+$/, '') || '/';
 const isAdminRoute = normalisedPathname === '/admin';
@@ -122,6 +173,32 @@ function getNodeTags(node) {
   }
 
   return tags;
+}
+
+function nodeSupportsStf(node) {
+  if (!node || typeof node !== 'object') {
+    return false;
+  }
+
+  if (typeof node.stf_enabled === 'boolean') {
+    return node.stf_enabled;
+  }
+
+  const resources = node.resources;
+  if (!resources || typeof resources !== 'object') {
+    return false;
+  }
+
+  const stfConfig = resources.stf;
+  if (!stfConfig || typeof stfConfig !== 'object') {
+    return false;
+  }
+
+  if (typeof stfConfig.enabled === 'boolean' && !stfConfig.enabled) {
+    return false;
+  }
+
+  return true;
 }
 
 function getStoredAdminToken() {
@@ -515,6 +592,92 @@ function handleEditNode(node, trigger) {
   }
 
   enterEditMode(node, { trigger });
+}
+
+async function handleOpenInStf(node, trigger) {
+  if (!node || !node.id) {
+    showToast('Unable to open STF without a node identifier.');
+    return;
+  }
+
+  const encodedId = encodeURIComponent(node.id);
+  const originalLabel = trigger ? trigger.textContent : '';
+
+  if (trigger) {
+    trigger.disabled = true;
+    trigger.textContent = 'Opening…';
+  }
+
+  let toastShown = false;
+
+  try {
+    const response = await fetchJson(
+      `/nodes/${encodedId}/stf/session`,
+      fetchOptions('POST')
+    );
+
+    let finalUrl = response.launch_url || '';
+    const jwt = response.jwt;
+    const queryParam = response.jwt_query_param;
+
+    if (jwt && queryParam && typeof finalUrl === 'string') {
+      try {
+        const parsedUrl = new URL(finalUrl);
+        parsedUrl.searchParams.set(queryParam, jwt);
+        finalUrl = parsedUrl.toString();
+      } catch (error) {
+        const separator = finalUrl.includes('?') ? '&' : '?';
+        finalUrl = `${finalUrl}${separator}${encodeURIComponent(queryParam)}=${encodeURIComponent(jwt)}`;
+      }
+    }
+
+    const openedWindow = finalUrl ? window.open(finalUrl, '_blank', 'noopener') : null;
+
+    if (!openedWindow) {
+      showToast('Popup blocked. Allow popups for this site to open STF.');
+      toastShown = true;
+    } else if (typeof openedWindow.focus === 'function') {
+      openedWindow.focus();
+    }
+
+    if (!toastShown) {
+      let message = 'Opening device in STF.';
+      const expiresAt = response.expires_at ? new Date(response.expires_at) : null;
+      if (expiresAt && !Number.isNaN(expiresAt.valueOf())) {
+        message += ` Reservation expires at ${expiresAt.toLocaleTimeString()}.`;
+      } else if (typeof response.ttl_seconds === 'number' && Number.isFinite(response.ttl_seconds)) {
+        message += ` Reservation lasts ${Math.round(response.ttl_seconds)} seconds.`;
+      }
+      showToast(message.trim());
+    }
+  } catch (error) {
+    const message = error?.message || 'Failed to open device in STF.';
+    showToast(message);
+  } finally {
+    if (trigger) {
+      trigger.disabled = false;
+      trigger.textContent = originalLabel || 'Open in STF';
+    }
+    let updatedNode = null;
+    try {
+      await loadNodes();
+      updatedNode = allNodes.find((candidate) => candidate && candidate.id === node.id) || null;
+    } catch (refreshError) {
+      console.warn('Failed to refresh nodes after STF action', refreshError);
+    }
+
+    if (
+      updatedNode &&
+      detailsModal &&
+      detailsModal.classList.contains('visible') &&
+      detailsModalNode &&
+      detailsModalNode.id === node.id
+    ) {
+      detailsModalNode = updatedNode;
+      detailsBody.textContent = serializeNode(updatedNode);
+      updateDetailsModalActions(updatedNode);
+    }
+  }
 }
 
 function fetchOptions(method = 'GET', payload, { requireAdmin = false, adminTokenOverride } = {}) {
@@ -1038,6 +1201,42 @@ function serializeNode(node) {
   return sections.join('\n');
 }
 
+function updateDetailsModalActions(node) {
+  if (!detailsActions || !detailsOpenStfButton) {
+    return;
+  }
+
+  if (!node || typeof node !== 'object') {
+    detailsActions.hidden = true;
+    detailsOpenStfButton.disabled = true;
+    detailsOpenStfButton.setAttribute('aria-disabled', 'true');
+    detailsOpenStfButton.title = 'Select a node to open STF.';
+    return;
+  }
+
+  detailsActions.hidden = false;
+  detailsOpenStfButton.textContent = 'Open in STF';
+
+  const supportsStf = nodeSupportsStf(node);
+  if (!supportsStf) {
+    detailsOpenStfButton.disabled = true;
+    detailsOpenStfButton.setAttribute('aria-disabled', 'true');
+    detailsOpenStfButton.title = 'STF access is not configured for this node.';
+    return;
+  }
+
+  const status = deriveStatus(node);
+  if (status === 'online') {
+    detailsOpenStfButton.disabled = false;
+    detailsOpenStfButton.removeAttribute('aria-disabled');
+    detailsOpenStfButton.title = 'Open this device in STF in a new tab.';
+  } else {
+    detailsOpenStfButton.disabled = true;
+    detailsOpenStfButton.setAttribute('aria-disabled', 'true');
+    detailsOpenStfButton.title = 'STF access is only available when the node is online.';
+  }
+}
+
 function closeDetailsModal() {
   if (!detailsModal) {
     return;
@@ -1056,6 +1255,8 @@ function closeDetailsModal() {
     }
   }
   lastFocusedTrigger = null;
+  detailsModalNode = null;
+  updateDetailsModalActions(null);
 }
 
 function showNodeDetails(node, triggerButton) {
@@ -1065,7 +1266,9 @@ function showNodeDetails(node, triggerButton) {
   }
 
   lastFocusedTrigger = triggerButton || null;
+  detailsModalNode = node;
   detailsBody.textContent = serializeNode(node);
+  updateDetailsModalActions(node);
   detailsModal.classList.add('visible');
   detailsModal.setAttribute('aria-hidden', 'false');
 
@@ -1115,6 +1318,19 @@ if (detailsModal) {
     }
   });
 }
+
+if (detailsOpenStfButton) {
+  detailsOpenStfButton.addEventListener('click', () => {
+    if (!detailsModalNode) {
+      showToast('Select a node before opening STF.');
+      return;
+    }
+
+    handleOpenInStf(detailsModalNode, detailsOpenStfButton);
+  });
+}
+
+updateDetailsModalActions(null);
 
 if (adminModal) {
   adminModalDismissTargets.forEach((target) => {
@@ -1201,6 +1417,7 @@ function renderRows(nodes) {
 
     const actions = [
       `<button class="action-button" data-show="${node.id}">Show details</button>`,
+      `<button class="action-button" data-open-stf="${node.id}">Open in STF</button>`,
     ];
 
     if (isAdminUnlocked && adminToken) {
@@ -1232,6 +1449,25 @@ function renderRows(nodes) {
       trigger.title = 'Session details are only available when the node is online.';
     } else {
       trigger.addEventListener('click', () => showNodeDetails(node, trigger));
+    }
+
+    const openStfButton = tr.querySelector('button[data-open-stf]');
+    if (openStfButton) {
+      const supportsStf = nodeSupportsStf(node);
+      if (!supportsStf) {
+        openStfButton.disabled = true;
+        openStfButton.setAttribute('aria-disabled', 'true');
+        openStfButton.title = 'STF access is not configured for this node.';
+      } else if (status !== 'online') {
+        openStfButton.disabled = true;
+        openStfButton.setAttribute('aria-disabled', 'true');
+        openStfButton.title = 'STF access is only available when the node is online.';
+      } else {
+        openStfButton.disabled = false;
+        openStfButton.removeAttribute('aria-disabled');
+        openStfButton.title = 'Open this device in STF in a new tab.';
+        openStfButton.addEventListener('click', () => handleOpenInStf(node, openStfButton));
+      }
     }
 
     const editButton = tr.querySelector('button[data-edit]');
@@ -1303,6 +1539,26 @@ async function loadNodes({ userInitiated = false } = {}) {
     renderRows(filteredNodes);
     updateSummary(allNodes, filteredNodes);
     updateFiltersToggleState();
+
+    if (detailsModalNode) {
+      const updatedDetailsNode = allNodes.find(
+        (candidate) => candidate && candidate.id === detailsModalNode.id
+      );
+
+      if (updatedDetailsNode) {
+        detailsModalNode = updatedDetailsNode;
+        if (detailsModal && detailsModal.classList.contains('visible')) {
+          detailsBody.textContent = serializeNode(updatedDetailsNode);
+          updateDetailsModalActions(updatedDetailsNode);
+        }
+      } else if (detailsModal && detailsModal.classList.contains('visible')) {
+        closeDetailsModal();
+        showToast('The node you were viewing is no longer available.');
+      } else {
+        detailsModalNode = null;
+        updateDetailsModalActions(null);
+      }
+    }
   } catch (error) {
     console.error('Failed to load nodes', error);
     if (!hasExistingRows) {
