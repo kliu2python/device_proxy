@@ -591,7 +591,16 @@ def generate_csv_template() -> str:
             "platform": "iOS",
             "platform_version": "17.4",
             "device_name": "Example Device",
-            "resources": json.dumps({"session_data": {"device": "metadata"}}),
+            "resources": json.dumps(
+                {
+                    "session_data": {"device": "metadata"},
+                    "stf": {
+                        "base_url": "https://stf.example.com",
+                        "control_path_template": "/#!/control/{udid}",
+                        "enabled": True,
+                    },
+                }
+            ),
         }
     )
     return output.getvalue()
