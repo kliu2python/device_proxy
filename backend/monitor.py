@@ -5,6 +5,8 @@ import logging
 import httpx
 import redis.asyncio as aioredis
 
+from backend.session_state import release_expired_stf_reservations
+
 logger = logging.getLogger(__name__)
 
 async def check_node_status(node_id: str, node: dict, redis_client):
@@ -37,6 +39,8 @@ async def start_monitor():
     redis_client = aioredis.from_url("redis://10.160.13.16:6379/0", decode_responses=True)
     logger.info("Monitor started")
     while True:
+        await release_expired_stf_reservations(redis_client)
+
         nodes = await redis_client.hgetall("nodes")
         for node_id, node_data in nodes.items():
             node = json.loads(node_data)

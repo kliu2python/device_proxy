@@ -7,11 +7,16 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
+from backend.session_state import (
+    SESSION_MAP_KEY,
+    NODE_SESSION_COUNTS_KEY,
+    cleanup_session,
+    reserve_node_session,
+    release_node_session,
+)
+
 router = APIRouter()
 redis_client = aioredis.from_url("redis://10.160.13.16:6379/0", decode_responses=True)
-
-SESSION_MAP_KEY = "session_map"
-NODE_SESSION_COUNTS_KEY = "node_session_counts"
 
 logger = logging.getLogger(__name__)
 
@@ -40,70 +45,6 @@ def _extract_session_id_from_response(content: bytes) -> Optional[str]:
         return value.get("sessionId") or value.get("session_id")
 
     return None
-
-
-async def _sync_node_session_metadata(
-    node_id: str, active_sessions: int, *, max_sessions: Optional[int] = None
-) -> None:
-    node_json = await redis_client.hget("nodes", node_id)
-    if not node_json:
-        logger.warning("Node %s not found while syncing session metadata", node_id)
-        return
-
-    try:
-        node = json.loads(node_json)
-    except json.JSONDecodeError:
-        logger.warning("Node %s stored metadata is invalid JSON", node_id)
-        return
-
-    if max_sessions is None:
-        try:
-            max_sessions = int(node.get("max_sessions", 1))
-        except (TypeError, ValueError):
-            max_sessions = 1
-
-    node["active_sessions"] = max(active_sessions, 0)
-
-    if node["active_sessions"] >= max_sessions:
-        node["status"] = "busy"
-    elif node.get("status") == "busy":
-        node["status"] = "online"
-
-    await redis_client.hset("nodes", node_id, json.dumps(node))
-
-
-async def _reserve_node_session(node_id: str, node: Dict) -> Optional[int]:
-    try:
-        max_sessions = int(node.get("max_sessions", 1))
-    except (TypeError, ValueError):
-        max_sessions = 1
-
-    new_count = await redis_client.hincrby(NODE_SESSION_COUNTS_KEY, node_id, 1)
-    if new_count > max_sessions:
-        await redis_client.hincrby(NODE_SESSION_COUNTS_KEY, node_id, -1)
-        return None
-
-    await _sync_node_session_metadata(
-        node_id, new_count, max_sessions=max_sessions
-    )
-    return new_count
-
-
-async def _release_node_session(node_id: str) -> int:
-    new_count = await redis_client.hincrby(NODE_SESSION_COUNTS_KEY, node_id, -1)
-    if new_count < 0:
-        new_count = 0
-        await redis_client.hset(NODE_SESSION_COUNTS_KEY, node_id, 0)
-
-    await _sync_node_session_metadata(node_id, new_count)
-    return new_count
-
-
-async def _cleanup_session(session_id: str, node_id: Optional[str]):
-    logger.info("Cleaning up session %s for node %s", session_id, node_id)
-    await redis_client.hdel(SESSION_MAP_KEY, session_id)
-    if node_id:
-        await _release_node_session(node_id)
 
 
 def _parse_session_payload(body: bytes) -> Optional[Dict]:
@@ -613,7 +554,7 @@ async def forward_request(request: Request, path: str):
 
             if request.method == "DELETE" or (status == "online" and active_sessions < max_sessions):
                 if is_new_session_request:
-                    reservation = await _reserve_node_session(node_id, node)
+                    reservation = await reserve_node_session(redis_client, node_id, node)
                     if reservation is None:
                         skip_reasons.append((node_id, "node at capacity during reservation"))
                         continue
@@ -665,7 +606,7 @@ async def forward_request(request: Request, path: str):
             )
     except Exception:
         if reserved_node_id:
-            await _release_node_session(reserved_node_id)
+            await release_node_session(redis_client, reserved_node_id)
         raise
 
     return (
@@ -700,9 +641,9 @@ async def create_session(request: Request):
             logger.info("Created session %s on node %s", session_id, node_id)
         else:
             if reservation_holder:
-                await _release_node_session(reservation_holder)
+                await release_node_session(redis_client, reservation_holder)
     elif reservation_holder:
-        await _release_node_session(reservation_holder)
+        await release_node_session(redis_client, reservation_holder)
 
     return Response(content=content, status_code=status, headers=dict(headers))
 
@@ -719,7 +660,7 @@ async def proxy_generic(request: Request, path: str):
         _,
     ) = await forward_request(request, path)
     if request.method == "DELETE" and session_id and 200 <= status < 405 :
-        await _cleanup_session(session_id, node_id)
+        await cleanup_session(redis_client, session_id, node_id)
         logger.info("Session %s terminated with status %s", session_id, status)
 
     return Response(content=content, status_code=status, headers=dict(headers))
@@ -745,8 +686,8 @@ async def selenium_create_session(request: Request):
             await redis_client.hset(SESSION_MAP_KEY, session_id, node_id)
         else:
             if reservation_holder:
-                await _release_node_session(reservation_holder)
+                await release_node_session(redis_client, reservation_holder)
     elif reservation_holder:
-        await _release_node_session(reservation_holder)
+        await release_node_session(redis_client, reservation_holder)
 
     return Response(content=content, status_code=status, headers=dict(headers))
