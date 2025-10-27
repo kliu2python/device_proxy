@@ -10,6 +10,8 @@ const summaryBusy = document.getElementById('summary-busy');
 const summaryUpdated = document.getElementById('summary-updated');
 const detailsModal = document.getElementById('details-modal');
 const detailsBody = document.getElementById('details-modal-body');
+const detailsActions = document.getElementById('details-modal-actions');
+const detailsOpenStfButton = document.getElementById('details-open-stf');
 const filterForm = document.getElementById('filters-form');
 const filterSearch = document.getElementById('filter-search');
 const filterPlatform = document.getElementById('filter-platform');
@@ -78,6 +80,7 @@ let adminToken = '';
 let isAdminUnlocked = false;
 let isFiltersMenuOpen = false;
 let editingNodeId = '';
+let detailsModalNode = null;
 
 const REFRESH_INTERVAL = 15000;
 const PAGE_SIZE = 5;
@@ -603,10 +606,24 @@ async function handleOpenInStf(node, trigger) {
       trigger.disabled = false;
       trigger.textContent = originalLabel || 'Open in STF';
     }
+    let updatedNode = null;
     try {
       await loadNodes();
+      updatedNode = allNodes.find((candidate) => candidate && candidate.id === node.id) || null;
     } catch (refreshError) {
       console.warn('Failed to refresh nodes after STF action', refreshError);
+    }
+
+    if (
+      updatedNode &&
+      detailsModal &&
+      detailsModal.classList.contains('visible') &&
+      detailsModalNode &&
+      detailsModalNode.id === node.id
+    ) {
+      detailsModalNode = updatedNode;
+      detailsBody.textContent = serializeNode(updatedNode);
+      updateDetailsModalActions(updatedNode);
     }
   }
 }
@@ -1132,6 +1149,43 @@ function serializeNode(node) {
   return sections.join('\n');
 }
 
+function updateDetailsModalActions(node) {
+  if (!detailsActions || !detailsOpenStfButton) {
+    return;
+  }
+
+  if (!node || typeof node !== 'object') {
+    detailsActions.hidden = true;
+    detailsOpenStfButton.disabled = true;
+    detailsOpenStfButton.setAttribute('aria-disabled', 'true');
+    detailsOpenStfButton.title = 'Select a node to open STF.';
+    return;
+  }
+
+  detailsOpenStfButton.textContent = 'Open in STF';
+
+  if (!nodeSupportsStf(node)) {
+    detailsActions.hidden = true;
+    detailsOpenStfButton.disabled = true;
+    detailsOpenStfButton.setAttribute('aria-disabled', 'true');
+    detailsOpenStfButton.title = 'STF access is not configured for this node.';
+    return;
+  }
+
+  detailsActions.hidden = false;
+
+  const status = deriveStatus(node);
+  if (status === 'online') {
+    detailsOpenStfButton.disabled = false;
+    detailsOpenStfButton.removeAttribute('aria-disabled');
+    detailsOpenStfButton.title = 'Open this device in STF in a new tab.';
+  } else {
+    detailsOpenStfButton.disabled = true;
+    detailsOpenStfButton.setAttribute('aria-disabled', 'true');
+    detailsOpenStfButton.title = 'STF access is only available when the node is online.';
+  }
+}
+
 function closeDetailsModal() {
   if (!detailsModal) {
     return;
@@ -1150,6 +1204,8 @@ function closeDetailsModal() {
     }
   }
   lastFocusedTrigger = null;
+  detailsModalNode = null;
+  updateDetailsModalActions(null);
 }
 
 function showNodeDetails(node, triggerButton) {
@@ -1159,7 +1215,9 @@ function showNodeDetails(node, triggerButton) {
   }
 
   lastFocusedTrigger = triggerButton || null;
+  detailsModalNode = node;
   detailsBody.textContent = serializeNode(node);
+  updateDetailsModalActions(node);
   detailsModal.classList.add('visible');
   detailsModal.setAttribute('aria-hidden', 'false');
 
@@ -1209,6 +1267,19 @@ if (detailsModal) {
     }
   });
 }
+
+if (detailsOpenStfButton) {
+  detailsOpenStfButton.addEventListener('click', () => {
+    if (!detailsModalNode) {
+      showToast('Select a node before opening STF.');
+      return;
+    }
+
+    handleOpenInStf(detailsModalNode, detailsOpenStfButton);
+  });
+}
+
+updateDetailsModalActions(null);
 
 if (adminModal) {
   adminModalDismissTargets.forEach((target) => {
@@ -1412,6 +1483,26 @@ async function loadNodes({ userInitiated = false } = {}) {
     renderRows(filteredNodes);
     updateSummary(allNodes, filteredNodes);
     updateFiltersToggleState();
+
+    if (detailsModalNode) {
+      const updatedDetailsNode = allNodes.find(
+        (candidate) => candidate && candidate.id === detailsModalNode.id
+      );
+
+      if (updatedDetailsNode) {
+        detailsModalNode = updatedDetailsNode;
+        if (detailsModal && detailsModal.classList.contains('visible')) {
+          detailsBody.textContent = serializeNode(updatedDetailsNode);
+          updateDetailsModalActions(updatedDetailsNode);
+        }
+      } else if (detailsModal && detailsModal.classList.contains('visible')) {
+        closeDetailsModal();
+        showToast('The node you were viewing is no longer available.');
+      } else {
+        detailsModalNode = null;
+        updateDetailsModalActions(null);
+      }
+    }
   } catch (error) {
     console.error('Failed to load nodes', error);
     if (!hasExistingRows) {

@@ -666,6 +666,17 @@ body {
   outline: none;
 }
 
+.details-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0.25rem 0 0;
+}
+
+.details-modal__actions[hidden] {
+  display: none;
+}
+
 .modal {
   position: fixed;
   inset: 0;
