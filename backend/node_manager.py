@@ -64,6 +64,13 @@ def _normalise_bool_flag(value) -> Optional[bool]:
     return None
 
 
+def _strip_or_none(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    value = value.strip()
+    return value or None
+
+
 def _load_global_stf_config() -> Dict:
     config: Dict[str, Optional[str]] = {}
 
@@ -132,13 +139,6 @@ class NodeRegistrationError(Exception):
 
 class StfSessionRequest(BaseModel):
     ttl_seconds: Optional[int] = None
-
-
-def _strip_or_none(value: Optional[str]) -> Optional[str]:
-    if value is None:
-        return None
-    value = value.strip()
-    return value or None
 
 
 async def _fetch_node(node_id: str) -> Dict:
