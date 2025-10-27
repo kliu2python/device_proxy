@@ -652,6 +652,7 @@ async function handleOpenInStf(node, trigger) {
     let finalUrl = response.launch_url || '';
     const jwt = response.jwt;
     const queryParam = response.jwt_query_param;
+    const responseJwt = typeof jwt === 'string' && jwt.trim() ? jwt.trim() : '';
 
     if (jwt && queryParam && typeof finalUrl === 'string') {
       try {
@@ -669,11 +670,21 @@ async function handleOpenInStf(node, trigger) {
     }
 
     const stfConfig = getNodeStfConfig(node);
+    const responseJwtCookieName =
+      typeof response.jwt_cookie_name === 'string' && response.jwt_cookie_name.trim()
+        ? response.jwt_cookie_name.trim()
+        : '';
+    const responseJwtCookiePath =
+      typeof response.jwt_cookie_path === 'string' && response.jwt_cookie_path.trim()
+        ? response.jwt_cookie_path.trim()
+        : '';
     const cookieNameCandidate =
+      responseJwtCookieName ||
       (stfConfig &&
         (stfConfig.jwt_cookie_name || stfConfig.jwtCookieName || stfConfig.cookie_name)) ||
       '';
     const cookiePathCandidate =
+      responseJwtCookiePath ||
       (stfConfig &&
         (stfConfig.jwt_cookie_path || stfConfig.jwtCookiePath || stfConfig.cookie_path)) ||
       '';
@@ -691,14 +702,18 @@ async function handleOpenInStf(node, trigger) {
       (stfConfig &&
         (stfConfig.jwt_cookie_secure || stfConfig.jwtCookieSecure || stfConfig.cookie_secure)) ||
       null;
+    const fallbackCookiePath = node && typeof node.udid === 'string' && node.udid.trim()
+      ? `/control/${node.udid.trim()}`
+      : '';
     const normalisedCookieName =
       typeof cookieNameCandidate === 'string' && cookieNameCandidate.trim()
         ? cookieNameCandidate.trim()
         : 'jwt';
-    const normalisedCookiePath =
+    const normalisedCookiePathCandidate =
       typeof cookiePathCandidate === 'string' && cookiePathCandidate.trim()
         ? cookiePathCandidate.trim()
-        : '/';
+        : '';
+    const normalisedCookiePath = normalisedCookiePathCandidate || fallbackCookiePath || '/';
     const normalisedCookieDomain =
       typeof cookieDomainCandidate === 'string' && cookieDomainCandidate.trim()
         ? cookieDomainCandidate.trim()
@@ -726,8 +741,8 @@ async function handleOpenInStf(node, trigger) {
       endpoint: formatEndpoint(node),
       ttlSeconds: response.ttl_seconds,
       expiresAt: response.expires_at || null,
-      jwt: typeof jwt === 'string' && jwt.trim()
-        ? jwt.trim()
+      jwt: responseJwt
+        ? responseJwt
         : typeof stfConfig?.jwt === 'string' && stfConfig.jwt.trim()
         ? stfConfig.jwt.trim()
         : typeof stfConfig?.token === 'string' && stfConfig.token.trim()
