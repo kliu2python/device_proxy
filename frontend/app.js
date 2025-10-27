@@ -182,6 +182,24 @@ function getNodeTags(node) {
   return tags;
 }
 
+function getNodeStfConfig(node) {
+  if (!node || typeof node !== 'object') {
+    return null;
+  }
+
+  const resources = node.resources;
+  if (!resources || typeof resources !== 'object') {
+    return null;
+  }
+
+  const stfConfig = resources.stf;
+  if (!stfConfig || typeof stfConfig !== 'object') {
+    return null;
+  }
+
+  return stfConfig;
+}
+
 function nodeSupportsStf(node) {
   if (!node || typeof node !== 'object') {
     return false;
@@ -191,13 +209,8 @@ function nodeSupportsStf(node) {
     return node.stf_enabled;
   }
 
-  const resources = node.resources;
-  if (!resources || typeof resources !== 'object') {
-    return false;
-  }
-
-  const stfConfig = resources.stf;
-  if (!stfConfig || typeof stfConfig !== 'object') {
+  const stfConfig = getNodeStfConfig(node);
+  if (!stfConfig) {
     return false;
   }
 
@@ -655,6 +668,57 @@ async function handleOpenInStf(node, trigger) {
       throw new Error('The STF session did not include a launch URL.');
     }
 
+    const stfConfig = getNodeStfConfig(node);
+    const cookieNameCandidate =
+      (stfConfig &&
+        (stfConfig.jwt_cookie_name || stfConfig.jwtCookieName || stfConfig.cookie_name)) ||
+      '';
+    const cookiePathCandidate =
+      (stfConfig &&
+        (stfConfig.jwt_cookie_path || stfConfig.jwtCookiePath || stfConfig.cookie_path)) ||
+      '';
+    const cookieDomainCandidate =
+      (stfConfig &&
+        (stfConfig.jwt_cookie_domain || stfConfig.jwtCookieDomain || stfConfig.cookie_domain)) ||
+      '';
+    const cookieSameSiteCandidate =
+      (stfConfig &&
+        (stfConfig.jwt_cookie_same_site ||
+          stfConfig.jwt_cookie_samesite ||
+          stfConfig.jwtCookieSameSite)) ||
+      '';
+    const cookieSecureCandidate =
+      (stfConfig &&
+        (stfConfig.jwt_cookie_secure || stfConfig.jwtCookieSecure || stfConfig.cookie_secure)) ||
+      null;
+    const normalisedCookieName =
+      typeof cookieNameCandidate === 'string' && cookieNameCandidate.trim()
+        ? cookieNameCandidate.trim()
+        : 'jwt';
+    const normalisedCookiePath =
+      typeof cookiePathCandidate === 'string' && cookiePathCandidate.trim()
+        ? cookiePathCandidate.trim()
+        : '/';
+    const normalisedCookieDomain =
+      typeof cookieDomainCandidate === 'string' && cookieDomainCandidate.trim()
+        ? cookieDomainCandidate.trim()
+        : '';
+    const normalisedCookieSameSite =
+      typeof cookieSameSiteCandidate === 'string' && cookieSameSiteCandidate.trim()
+        ? cookieSameSiteCandidate.trim()
+        : '';
+    let normalisedCookieSecure = false;
+    if (typeof cookieSecureCandidate === 'boolean') {
+      normalisedCookieSecure = cookieSecureCandidate;
+    } else if (typeof cookieSecureCandidate === 'string') {
+      const trimmed = cookieSecureCandidate.trim().toLowerCase();
+      if (trimmed === 'true' || trimmed === '1' || trimmed === 'yes' || trimmed === 'y') {
+        normalisedCookieSecure = true;
+      }
+    } else if (typeof cookieSecureCandidate === 'number') {
+      normalisedCookieSecure = cookieSecureCandidate === 1;
+    }
+
     const session = {
       nodeId: node.id,
       launchUrl: finalUrl,
@@ -662,6 +726,18 @@ async function handleOpenInStf(node, trigger) {
       endpoint: formatEndpoint(node),
       ttlSeconds: response.ttl_seconds,
       expiresAt: response.expires_at || null,
+      jwt: typeof jwt === 'string' && jwt.trim()
+        ? jwt.trim()
+        : typeof stfConfig?.jwt === 'string' && stfConfig.jwt.trim()
+        ? stfConfig.jwt.trim()
+        : typeof stfConfig?.token === 'string' && stfConfig.token.trim()
+        ? stfConfig.token.trim()
+        : null,
+      jwtCookieName: normalisedCookieName,
+      jwtCookiePath: normalisedCookiePath,
+      jwtCookieDomain: normalisedCookieDomain,
+      jwtCookieSameSite: normalisedCookieSameSite,
+      jwtCookieSecure: normalisedCookieSecure,
     };
 
     markNodeBusyLocally(node.id);
@@ -792,6 +868,81 @@ function buildSessionStatusMessage(session) {
   return '';
 }
 
+function buildStfSessionFrameDocument(session) {
+  if (!session || typeof session !== 'object') {
+    return '';
+  }
+
+  const launchUrl = typeof session.launchUrl === 'string' ? session.launchUrl.trim() : '';
+  if (!launchUrl) {
+    return '';
+  }
+
+  const jwt = typeof session.jwt === 'string' ? session.jwt.trim() : '';
+  if (!jwt) {
+    return '';
+  }
+
+  const cookieName =
+    typeof session.jwtCookieName === 'string' && session.jwtCookieName.trim()
+      ? session.jwtCookieName.trim()
+      : 'jwt';
+  const cookiePath =
+    typeof session.jwtCookiePath === 'string' && session.jwtCookiePath.trim()
+      ? session.jwtCookiePath.trim()
+      : '/';
+  const cookieDomain =
+    typeof session.jwtCookieDomain === 'string' ? session.jwtCookieDomain.trim() : '';
+  const cookieSameSite =
+    typeof session.jwtCookieSameSite === 'string' ? session.jwtCookieSameSite.trim() : '';
+  const cookieSecure = Boolean(session.jwtCookieSecure);
+
+  const targetUrl = launchUrl;
+
+  return `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>STF Auto Login</title></head>
+<body>
+<script>
+  (function() {
+    var jwt = ${JSON.stringify(jwt)};
+    var cookieName = ${JSON.stringify(cookieName)};
+    var cookiePath = ${JSON.stringify(cookiePath)};
+    var cookieDomain = ${JSON.stringify(cookieDomain)};
+    var cookieSameSite = ${JSON.stringify(cookieSameSite)};
+    var cookieSecure = ${JSON.stringify(Boolean(cookieSecure))};
+    var targetUrl = ${JSON.stringify(targetUrl)};
+    if (jwt && cookieName) {
+      try {
+        var cookieSegments = [];
+        cookieSegments.push(cookieName + '=' + encodeURIComponent(jwt));
+        if (cookiePath) {
+          cookieSegments.push('path=' + cookiePath);
+        }
+        if (cookieDomain) {
+          cookieSegments.push('domain=' + cookieDomain);
+        }
+        if (cookieSameSite) {
+          cookieSegments.push('SameSite=' + cookieSameSite);
+        }
+        if (cookieSecure) {
+          cookieSegments.push('Secure');
+        }
+        document.cookie = cookieSegments.join('; ');
+      } catch (cookieError) {
+        console.error('Failed to set STF auth cookie', cookieError);
+      }
+    }
+
+    if (targetUrl) {
+      window.location.href = targetUrl;
+    }
+  })();
+</script>
+</body>
+</html>`;
+}
+
 function updateStfSessionUi(session) {
   if (!stfSessionContainer) {
     return;
@@ -821,7 +972,14 @@ function updateStfSessionUi(session) {
   }
 
   if (stfSessionFrame) {
-    stfSessionFrame.src = session?.launchUrl || 'about:blank';
+    const frameDocument = buildStfSessionFrameDocument(session);
+    if (frameDocument) {
+      stfSessionFrame.removeAttribute('src');
+      stfSessionFrame.srcdoc = frameDocument;
+    } else {
+      stfSessionFrame.removeAttribute('srcdoc');
+      stfSessionFrame.src = session?.launchUrl || 'about:blank';
+    }
   }
 
   document.body.classList.add('stf-session-active');
@@ -857,6 +1015,7 @@ function hideStfSessionUi() {
   }
 
   if (stfSessionFrame) {
+    stfSessionFrame.removeAttribute('srcdoc');
     stfSessionFrame.src = 'about:blank';
   }
 
