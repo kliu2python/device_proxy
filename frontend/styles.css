@@ -595,6 +595,7 @@ body {
   pointer-events: none;
   transition: opacity 0.2s ease, transform 0.2s ease;
   font-weight: 600;
+  z-index: 1100;
 }
 
 #toast.visible {
@@ -746,6 +747,68 @@ body {
   color: var(--text);
   transform: scale(1.05);
   outline: none;
+}
+
+.stf-session {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  z-index: 1000;
+}
+
+.stf-session[hidden] {
+  display: none;
+}
+
+.stf-session__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 2px 8px var(--shadow);
+  z-index: 1;
+}
+
+.stf-session__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.stf-session__title {
+  margin: 0;
+  font-size: 1.4rem;
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+.stf-session__subtitle,
+.stf-session__status {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  word-break: break-word;
+}
+
+.stf-session__status {
+  font-style: italic;
+}
+
+.stf-session__frame {
+  flex: 1 1 auto;
+  width: 100%;
+  border: none;
+  background: #0f172a;
+}
+
+body.stf-session-active {
+  overflow: hidden;
 }
 
 .modal__body {

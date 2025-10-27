@@ -12,6 +12,12 @@ const detailsModal = document.getElementById('details-modal');
 const detailsBody = document.getElementById('details-modal-body');
 const detailsActions = document.getElementById('details-modal-actions');
 const detailsOpenStfButton = document.getElementById('details-open-stf');
+const stfSessionContainer = document.getElementById('stf-session-container');
+const stfSessionTitle = document.getElementById('stf-session-title');
+const stfSessionSubtitle = document.getElementById('stf-session-subtitle');
+const stfSessionStatus = document.getElementById('stf-session-status');
+const stfSessionFrame = document.getElementById('stf-session-frame');
+const stfSessionCloseButton = document.getElementById('stf-session-close');
 const filterForm = document.getElementById('filters-form');
 const filterSearch = document.getElementById('filter-search');
 const filterPlatform = document.getElementById('filter-platform');
@@ -81,6 +87,7 @@ let isAdminUnlocked = false;
 let isFiltersMenuOpen = false;
 let editingNodeId = '';
 let detailsModalNode = null;
+let activeStfSession = null;
 
 const REFRESH_INTERVAL = 15000;
 const PAGE_SIZE = 5;
@@ -452,10 +459,7 @@ function refreshAdminDependentUi() {
     return;
   }
 
-  filteredNodes = applyFilters(allNodes);
-  renderRows(filteredNodes);
-  updateSummary(allNodes, filteredNodes);
-  updateFiltersToggleState();
+  refreshNodeViews();
 }
 
 function updateAdminControlsVisibility() {
@@ -600,6 +604,22 @@ async function handleOpenInStf(node, trigger) {
     return;
   }
 
+  if (!nodeSupportsStf(node)) {
+    showToast('STF access is not available for this node.');
+    return;
+  }
+
+  if (activeStfSession && activeStfSession.nodeId === node.id) {
+    updateStfSessionUi(activeStfSession);
+    showToast('This STF session is already active in this tab.');
+    return;
+  }
+
+  if (activeStfSession && activeStfSession.nodeId !== node.id) {
+    showToast('Close the active STF session before opening another device.');
+    return;
+  }
+
   const encodedId = encodeURIComponent(node.id);
   const originalLabel = trigger ? trigger.textContent : '';
 
@@ -608,7 +628,7 @@ async function handleOpenInStf(node, trigger) {
     trigger.textContent = 'Opening…';
   }
 
-  let toastShown = false;
+  let sessionActivated = false;
 
   try {
     const response = await fetchJson(
@@ -631,33 +651,38 @@ async function handleOpenInStf(node, trigger) {
       }
     }
 
-    const openedWindow = finalUrl ? window.open(finalUrl, '_blank', 'noopener') : null;
-
-    if (!openedWindow) {
-      showToast('Popup blocked. Allow popups for this site to open STF.');
-      toastShown = true;
-    } else if (typeof openedWindow.focus === 'function') {
-      openedWindow.focus();
+    if (!finalUrl) {
+      throw new Error('The STF session did not include a launch URL.');
     }
 
-    if (!toastShown) {
-      let message = 'Opening device in STF.';
-      const expiresAt = response.expires_at ? new Date(response.expires_at) : null;
-      if (expiresAt && !Number.isNaN(expiresAt.valueOf())) {
-        message += ` Reservation expires at ${expiresAt.toLocaleTimeString()}.`;
-      } else if (typeof response.ttl_seconds === 'number' && Number.isFinite(response.ttl_seconds)) {
-        message += ` Reservation lasts ${Math.round(response.ttl_seconds)} seconds.`;
-      }
-      showToast(message.trim());
+    const session = {
+      nodeId: node.id,
+      launchUrl: finalUrl,
+      displayName: formatNodeDisplayName(node),
+      endpoint: formatEndpoint(node),
+      ttlSeconds: response.ttl_seconds,
+      expiresAt: response.expires_at || null,
+    };
+
+    markNodeBusyLocally(node.id);
+    setActiveStfSession(session);
+    sessionActivated = true;
+
+    let message = 'Opening device in STF within this page.';
+    const statusMessage = buildSessionStatusMessage(session);
+    if (statusMessage) {
+      message += ` ${statusMessage}`;
     }
+    showToast(message.trim());
   } catch (error) {
     const message = error?.message || 'Failed to open device in STF.';
     showToast(message);
   } finally {
-    if (trigger) {
+    if (!sessionActivated && trigger && trigger.isConnected) {
       trigger.disabled = false;
-      trigger.textContent = originalLabel || 'Open in STF';
+      trigger.textContent = originalLabel || 'Open STF session';
     }
+
     let updatedNode = null;
     try {
       await loadNodes();
@@ -674,7 +699,9 @@ async function handleOpenInStf(node, trigger) {
       detailsModalNode.id === node.id
     ) {
       detailsModalNode = updatedNode;
-      detailsBody.textContent = serializeNode(updatedNode);
+      if (detailsBody) {
+        detailsBody.textContent = serializeNode(updatedNode);
+      }
       updateDetailsModalActions(updatedNode);
     }
   }
@@ -730,6 +757,234 @@ function formatEndpoint(node) {
   const protocol = node.protocol || 'http';
   const path = node.path || '/wd/hub';
   return `${protocol}://${node.host}:${node.port}${path}`;
+}
+
+function formatNodeDisplayName(node) {
+  if (!node || typeof node !== 'object') {
+    return 'Unknown device';
+  }
+  if (node.device_name) {
+    return node.device_name;
+  }
+  return node.id || 'Unknown device';
+}
+
+function buildSessionStatusMessage(session) {
+  if (!session) {
+    return '';
+  }
+
+  if (session.expiresAt) {
+    try {
+      const expiresAt = new Date(session.expiresAt);
+      if (!Number.isNaN(expiresAt.valueOf())) {
+        return `Reservation expires at ${expiresAt.toLocaleTimeString()}.`;
+      }
+    } catch (error) {
+      // Ignore invalid timestamps
+    }
+  }
+
+  if (typeof session.ttlSeconds === 'number' && Number.isFinite(session.ttlSeconds)) {
+    return `Reservation lasts ${Math.round(session.ttlSeconds)} seconds.`;
+  }
+
+  return '';
+}
+
+function updateStfSessionUi(session) {
+  if (!stfSessionContainer) {
+    return;
+  }
+
+  stfSessionContainer.hidden = false;
+  if (session?.nodeId) {
+    stfSessionContainer.dataset.nodeId = session.nodeId;
+  } else {
+    delete stfSessionContainer.dataset.nodeId;
+  }
+
+  if (stfSessionTitle) {
+    stfSessionTitle.textContent = session?.displayName || 'Active STF session';
+  }
+
+  if (stfSessionSubtitle) {
+    const subtitle = session?.endpoint || '';
+    stfSessionSubtitle.textContent = subtitle;
+    stfSessionSubtitle.hidden = !subtitle;
+  }
+
+  if (stfSessionStatus) {
+    const statusMessage = buildSessionStatusMessage(session);
+    stfSessionStatus.textContent = statusMessage;
+    stfSessionStatus.hidden = !statusMessage;
+  }
+
+  if (stfSessionFrame) {
+    stfSessionFrame.src = session?.launchUrl || 'about:blank';
+  }
+
+  document.body.classList.add('stf-session-active');
+
+  if (stfSessionCloseButton) {
+    stfSessionCloseButton.disabled = false;
+    window.requestAnimationFrame(() => {
+      if (typeof stfSessionCloseButton.focus === 'function') {
+        stfSessionCloseButton.focus();
+      }
+    });
+  }
+}
+
+function hideStfSessionUi() {
+  if (stfSessionContainer) {
+    stfSessionContainer.hidden = true;
+    delete stfSessionContainer.dataset.nodeId;
+  }
+
+  if (stfSessionTitle) {
+    stfSessionTitle.textContent = '';
+  }
+
+  if (stfSessionSubtitle) {
+    stfSessionSubtitle.textContent = '';
+    stfSessionSubtitle.hidden = true;
+  }
+
+  if (stfSessionStatus) {
+    stfSessionStatus.textContent = '';
+    stfSessionStatus.hidden = true;
+  }
+
+  if (stfSessionFrame) {
+    stfSessionFrame.src = 'about:blank';
+  }
+
+  document.body.classList.remove('stf-session-active');
+}
+
+function setActiveStfSession(session) {
+  activeStfSession = session || null;
+
+  if (activeStfSession) {
+    updateStfSessionUi(activeStfSession);
+  } else {
+    hideStfSessionUi();
+  }
+
+  refreshNodeViews();
+
+  if (detailsModalNode) {
+    const updatedNode = allNodes.find((candidate) => candidate && candidate.id === detailsModalNode.id);
+    if (updatedNode) {
+      detailsModalNode = updatedNode;
+      if (detailsModal && detailsModal.classList.contains('visible') && detailsBody) {
+        detailsBody.textContent = serializeNode(updatedNode);
+      }
+      updateDetailsModalActions(updatedNode);
+    } else {
+      detailsModalNode = null;
+      updateDetailsModalActions(null);
+    }
+  } else {
+    updateDetailsModalActions(null);
+  }
+}
+
+function markNodeBusyLocally(nodeId) {
+  if (!nodeId) {
+    return;
+  }
+
+  const node = allNodes.find((candidate) => candidate && candidate.id === nodeId);
+  if (!node) {
+    return;
+  }
+
+  const maxSessions = Number(node.max_sessions ?? 1);
+  if (Number.isFinite(maxSessions) && maxSessions > 0) {
+    node.active_sessions = maxSessions;
+  }
+  node.status = 'busy';
+
+  if (detailsModalNode && detailsModalNode.id === nodeId) {
+    detailsModalNode = node;
+    if (detailsModal && detailsModal.classList.contains('visible') && detailsBody) {
+      detailsBody.textContent = serializeNode(node);
+    }
+  }
+}
+
+async function releaseStfReservation(nodeId, { keepalive = false } = {}) {
+  if (!nodeId) {
+    return;
+  }
+
+  const encodedId = encodeURIComponent(nodeId);
+  const options = fetchOptions('DELETE');
+  if (keepalive) {
+    options.keepalive = true;
+  }
+
+  const response = await fetch(`${API_BASE_URL}/nodes/${encodedId}/stf/session`, options);
+  if (!response.ok && response.status !== 404) {
+    const error = new Error('Failed to release STF session.');
+    error.status = response.status;
+    throw error;
+  }
+}
+
+async function closeActiveStfSession({ silent = false } = {}) {
+  if (!activeStfSession) {
+    return;
+  }
+
+  const session = activeStfSession;
+  setActiveStfSession(null);
+
+  let releaseFailed = false;
+
+  try {
+    await releaseStfReservation(session.nodeId);
+    if (!silent) {
+      showToast('STF session closed. Device released.');
+    }
+  } catch (error) {
+    releaseFailed = true;
+    console.error('Failed to release STF session', error);
+    if (!silent) {
+      const message = error?.message || 'Failed to release STF session. Please try again.';
+      showToast(message);
+    }
+  }
+
+  if (releaseFailed) {
+    setActiveStfSession(session);
+    return;
+  }
+
+  try {
+    await loadNodes();
+  } catch (refreshError) {
+    console.warn('Failed to refresh nodes after closing STF session', refreshError);
+  }
+}
+
+function sendStfReleaseKeepalive(nodeId) {
+  if (!nodeId) {
+    return;
+  }
+
+  try {
+    const encodedId = encodeURIComponent(nodeId);
+    const options = fetchOptions('DELETE');
+    options.keepalive = true;
+    fetch(`${API_BASE_URL}/nodes/${encodedId}/stf/session`, options).catch((error) => {
+      console.warn('Failed to send STF release keepalive', error);
+    });
+  } catch (error) {
+    console.warn('Failed to prepare STF release keepalive', error);
+  }
 }
 
 function deriveStatus(node) {
@@ -804,6 +1059,17 @@ function updateFiltersToggleState() {
   }
 
   filtersToggle.classList.toggle('button--active', filtersAreActive());
+}
+
+function refreshNodeViews({ resetPage = false } = {}) {
+  if (resetPage) {
+    currentPage = 1;
+  }
+
+  filteredNodes = applyFilters(allNodes);
+  renderRows(filteredNodes);
+  updateSummary(allNodes, filteredNodes);
+  updateFiltersToggleState();
 }
 
 function applyFilters(nodes) {
@@ -930,11 +1196,7 @@ function goToPage(page) {
 }
 
 function handleFiltersChange() {
-  filteredNodes = applyFilters(allNodes);
-  currentPage = 1;
-  renderRows(filteredNodes);
-  updateSummary(allNodes, filteredNodes);
-  updateFiltersToggleState();
+  refreshNodeViews({ resetPage: true });
 }
 
 async function handleDeleteNode(node, button) {
@@ -1215,7 +1477,7 @@ function updateDetailsModalActions(node) {
   }
 
   detailsActions.hidden = false;
-  detailsOpenStfButton.textContent = 'Open in STF';
+  detailsOpenStfButton.textContent = 'Open STF session';
 
   const supportsStf = nodeSupportsStf(node);
   if (!supportsStf) {
@@ -1225,11 +1487,29 @@ function updateDetailsModalActions(node) {
     return;
   }
 
+  const isSessionActiveForNode = activeStfSession?.nodeId === node.id;
+  const isAnotherSessionActive = activeStfSession && !isSessionActiveForNode;
+
+  if (isSessionActiveForNode) {
+    detailsOpenStfButton.disabled = true;
+    detailsOpenStfButton.setAttribute('aria-disabled', 'true');
+    detailsOpenStfButton.textContent = 'Session active';
+    detailsOpenStfButton.title = 'This STF session is already active in this tab.';
+    return;
+  }
+
+  if (isAnotherSessionActive) {
+    detailsOpenStfButton.disabled = true;
+    detailsOpenStfButton.setAttribute('aria-disabled', 'true');
+    detailsOpenStfButton.title = 'Close the active STF session before opening another device.';
+    return;
+  }
+
   const status = deriveStatus(node);
   if (status === 'online') {
     detailsOpenStfButton.disabled = false;
     detailsOpenStfButton.removeAttribute('aria-disabled');
-    detailsOpenStfButton.title = 'Open this device in STF in a new tab.';
+    detailsOpenStfButton.title = 'Open this device in STF within this page.';
   } else {
     detailsOpenStfButton.disabled = true;
     detailsOpenStfButton.setAttribute('aria-disabled', 'true');
@@ -1417,12 +1697,8 @@ function renderRows(nodes) {
 
     const actions = [
       `<button class="action-button" data-show="${node.id}">Show details</button>`,
-      `<button class="action-button" data-open-stf="${node.id}">Open in STF</button>`,
+      `<button class="action-button" data-open-stf="${node.id}">Open STF session</button>`,
     ];
-
-    if (nodeSupportsStf(node)) {
-      actions.push(`<button class="action-button" data-open-stf="${node.id}">Open in STF</button>`);
-    }
 
     if (isAdminUnlocked && adminToken) {
       actions.push(`<button class="action-button" data-edit="${node.id}">Edit</button>`);
@@ -1458,10 +1734,23 @@ function renderRows(nodes) {
     const openStfButton = tr.querySelector('button[data-open-stf]');
     if (openStfButton) {
       const supportsStf = nodeSupportsStf(node);
+      const isSessionActiveForNode = activeStfSession?.nodeId === node.id;
+      const isAnotherSessionActive = activeStfSession && !isSessionActiveForNode;
+
+      openStfButton.textContent = isSessionActiveForNode ? 'Session active' : 'Open STF session';
+
       if (!supportsStf) {
         openStfButton.disabled = true;
         openStfButton.setAttribute('aria-disabled', 'true');
         openStfButton.title = 'STF access is not configured for this node.';
+      } else if (isSessionActiveForNode) {
+        openStfButton.disabled = true;
+        openStfButton.setAttribute('aria-disabled', 'true');
+        openStfButton.title = 'This STF session is already active in this tab.';
+      } else if (isAnotherSessionActive) {
+        openStfButton.disabled = true;
+        openStfButton.setAttribute('aria-disabled', 'true');
+        openStfButton.title = 'Close the active STF session before opening another device.';
       } else if (status !== 'online') {
         openStfButton.disabled = true;
         openStfButton.setAttribute('aria-disabled', 'true');
@@ -1469,7 +1758,7 @@ function renderRows(nodes) {
       } else {
         openStfButton.disabled = false;
         openStfButton.removeAttribute('aria-disabled');
-        openStfButton.title = 'Open this device in STF in a new tab.';
+        openStfButton.title = 'Open this device in STF within this page.';
         openStfButton.addEventListener('click', () => handleOpenInStf(node, openStfButton));
       }
     }
@@ -1536,13 +1825,19 @@ async function loadNodes({ userInitiated = false } = {}) {
         showToast('The node you were editing is no longer available.');
       }
     }
-    filteredNodes = applyFilters(allNodes);
-    if (isInitialLoad) {
-      currentPage = 1;
+    refreshNodeViews({ resetPage: isInitialLoad });
+
+    if (activeStfSession) {
+      const activeNode = allNodes.find((candidate) => candidate && candidate.id === activeStfSession.nodeId);
+      const nodeStatus = activeNode ? deriveStatus(activeNode) : null;
+      if (!activeNode || nodeStatus !== 'busy') {
+        const endedMessage = !activeNode
+          ? 'Active STF session ended because the node is no longer available.'
+          : 'Active STF session ended because the device is available again.';
+        setActiveStfSession(null);
+        showToast(endedMessage);
+      }
     }
-    renderRows(filteredNodes);
-    updateSummary(allNodes, filteredNodes);
-    updateFiltersToggleState();
 
     if (detailsModalNode) {
       const updatedDetailsNode = allNodes.find(
@@ -1638,6 +1933,13 @@ if (paginationNext) {
   });
 }
 
+if (stfSessionCloseButton) {
+  stfSessionCloseButton.addEventListener('click', () => {
+    stfSessionCloseButton.disabled = true;
+    closeActiveStfSession();
+  });
+}
+
 if (adminToolsTrigger) {
   adminToolsTrigger.addEventListener('click', () => {
     if (isAdminUnlocked && adminToken) {
@@ -1662,3 +1964,9 @@ refreshButton.addEventListener('click', () => loadNodes({ userInitiated: true })
 initialiseAdminAccess();
 loadNodes();
 setInterval(() => loadNodes(), REFRESH_INTERVAL);
+
+window.addEventListener('beforeunload', () => {
+  if (activeStfSession?.nodeId) {
+    sendStfReleaseKeepalive(activeStfSession.nodeId);
+  }
+});

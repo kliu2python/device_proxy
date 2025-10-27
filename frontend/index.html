@@ -150,6 +150,26 @@
 
     <div id="toast" role="status" aria-live="polite"></div>
 
+    <div id="stf-session-container" class="stf-session" hidden>
+      <div class="stf-session__header">
+        <div class="stf-session__meta">
+          <h2 id="stf-session-title" class="stf-session__title"></h2>
+          <p id="stf-session-subtitle" class="stf-session__subtitle" hidden></p>
+          <p id="stf-session-status" class="stf-session__status" hidden></p>
+        </div>
+        <button type="button" id="stf-session-close" class="button button--secondary">
+          Close session
+        </button>
+      </div>
+      <iframe
+        id="stf-session-frame"
+        class="stf-session__frame"
+        title="STF session frame"
+        allow="clipboard-read; clipboard-write; fullscreen"
+        referrerpolicy="no-referrer"
+      ></iframe>
+    </div>
+
     <div
       id="admin-modal"
       class="modal"
