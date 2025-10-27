@@ -749,57 +749,6 @@ async def close_stf_session(node_id: str):
     return Response(status_code=204)
 
 
-
-@router.post("/nodes/{node_id}/stf/session")
-async def open_stf_session(node_id: str, request: StfSessionRequest):
-    node = await _fetch_node(node_id)
-    stf_config = _ensure_stf_config(node)
-
-    if not _node_is_available(node):
-        raise HTTPException(status_code=409, detail="Node is not available for STF access")
-
-    ttl_seconds = _resolve_stf_session_ttl(stf_config, request)
-
-    expires_at = await create_stf_reservation(redis_client, node_id, node, ttl_seconds)
-    if expires_at is None:
-        raise HTTPException(status_code=409, detail="Node is already busy")
-
-    launch_url = _build_stf_control_url(node, stf_config)
-    jwt_token = stf_config.get("jwt") or stf_config.get("token")
-    jwt_query_param = stf_config.get("jwt_query_param")
-    if isinstance(jwt_query_param, str):
-        jwt_query_param = jwt_query_param.strip() or None
-    else:
-        jwt_query_param = None
-
-    logger.info(
-        "Reserved node %s for STF via API (ttl=%s, launch_url=%s)",
-        node_id,
-        ttl_seconds,
-        launch_url,
-    )
-
-    return {
-        "launch_url": launch_url,
-        "jwt": jwt_token,
-        "jwt_query_param": jwt_query_param,
-        "ttl_seconds": ttl_seconds,
-        "expires_at": datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
-    }
-
-
-@router.delete("/nodes/{node_id}/stf/session")
-async def close_stf_session(node_id: str):
-    await _fetch_node(node_id)
-
-    released = await release_stf_reservation(redis_client, node_id)
-    if not released:
-        raise HTTPException(status_code=404, detail="No STF reservation active for this node")
-
-    logger.info("Released STF reservation for node %s via API", node_id)
-    return Response(status_code=204)
-
-
 @router.get("/summary")
 async def summary():
     nodes = await redis_client.hgetall("nodes")
