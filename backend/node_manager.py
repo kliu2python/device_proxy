@@ -48,6 +48,19 @@ DEFAULT_STF_SESSION_TTL_SECONDS = 15 * 60
 DEFAULT_STF_MAX_TTL_SECONDS = 60 * 60
 
 
+def _coerce_positive_int(value, *, minimum: int = 1) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        return None
+
+    if result < minimum:
+        return None
+    return result
+
+
 def _normalise_bool_flag(value) -> Optional[bool]:
     if isinstance(value, bool):
         return value
@@ -223,19 +236,6 @@ def _node_supports_stf(node: Dict) -> bool:
         return False
 
     return True
-
-
-def _coerce_positive_int(value, *, minimum: int = 1) -> Optional[int]:
-    if value is None:
-        return None
-    try:
-        result = int(value)
-    except (TypeError, ValueError):
-        return None
-
-    if result < minimum:
-        return None
-    return result
 
 
 def _resolve_stf_session_ttl(stf_config: Dict, request: StfSessionRequest) -> int:
@@ -591,7 +591,16 @@ def generate_csv_template() -> str:
             "platform": "iOS",
             "platform_version": "17.4",
             "device_name": "Example Device",
-            "resources": json.dumps({"session_data": {"device": "metadata"}}),
+            "resources": json.dumps(
+                {
+                    "session_data": {"device": "metadata"},
+                    "stf": {
+                        "base_url": "https://stf.example.com",
+                        "control_path_template": "/#!/control/{udid}",
+                        "enabled": True,
+                    },
+                }
+            ),
         }
     )
     return output.getvalue()
