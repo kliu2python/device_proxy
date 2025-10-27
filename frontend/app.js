@@ -1372,6 +1372,10 @@ function renderRows(nodes) {
       `<button class="action-button" data-open-stf="${node.id}">Open in STF</button>`,
     ];
 
+    if (nodeSupportsStf(node)) {
+      actions.push(`<button class="action-button" data-open-stf="${node.id}">Open in STF</button>`);
+    }
+
     if (isAdminUnlocked && adminToken) {
       actions.push(`<button class="action-button" data-edit="${node.id}">Edit</button>`);
       actions.push(`<button class="danger-button" data-delete="${node.id}">Delete</button>`);
