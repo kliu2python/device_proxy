@@ -5,6 +5,7 @@ import logging
 import os
 import secrets
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set
 
@@ -12,6 +13,8 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
+
+from backend.session_state import create_stf_reservation, release_stf_reservation
 
 router = APIRouter()
 redis_client = aioredis.from_url("redis://10.160.13.16:6379/0", decode_responses=True)
@@ -41,6 +44,9 @@ CSV_TEMPLATE_HEADERS = [
 
 SUPPORTED_DEVICE_POOLS = {"ios", "android", "android-emulator", "web"}
 
+DEFAULT_STF_SESSION_TTL_SECONDS = 15 * 60
+DEFAULT_STF_MAX_TTL_SECONDS = 60 * 60
+
 _ADMIN_USERNAME = os.getenv(ADMIN_USERNAME_ENV_VAR, "admin")
 _ADMIN_PASSWORD = os.getenv(ADMIN_PASSWORD_ENV_VAR, "Fortinet01!")
 _ACTIVE_ADMIN_TOKENS: Set[str] = set()
@@ -59,11 +65,131 @@ class NodeRegistrationError(Exception):
     """Raised when a node cannot be registered."""
 
 
+class StfSessionRequest(BaseModel):
+    ttl_seconds: Optional[int] = None
+
+
 def _strip_or_none(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
     value = value.strip()
     return value or None
+
+
+async def _fetch_node(node_id: str) -> Dict:
+    node_json = await redis_client.hget("nodes", node_id)
+    if not node_json:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    try:
+        node = json.loads(node_json)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(
+            status_code=500, detail="Stored node metadata is invalid JSON"
+        ) from exc
+
+    return node
+
+
+def _ensure_stf_config(node: Dict) -> Dict:
+    resources = node.get("resources")
+    if not isinstance(resources, dict):
+        raise HTTPException(
+            status_code=404, detail="Node is not configured for STF access"
+        )
+
+    stf_config = resources.get("stf")
+    if not isinstance(stf_config, dict):
+        raise HTTPException(
+            status_code=404, detail="Node is not configured for STF access"
+        )
+
+    return stf_config
+
+
+def _coerce_positive_int(value, *, minimum: int = 1) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        result = int(value)
+    except (TypeError, ValueError):
+        return None
+
+    if result < minimum:
+        return None
+    return result
+
+
+def _resolve_stf_session_ttl(stf_config: Dict, request: StfSessionRequest) -> int:
+    default_ttl = (
+        _coerce_positive_int(stf_config.get("session_ttl_seconds"))
+        or _coerce_positive_int(stf_config.get("session_ttl"))
+        or DEFAULT_STF_SESSION_TTL_SECONDS
+    )
+
+    configured_max = (
+        _coerce_positive_int(stf_config.get("max_session_ttl_seconds"))
+        or _coerce_positive_int(stf_config.get("max_session_ttl"))
+        or DEFAULT_STF_MAX_TTL_SECONDS
+    )
+    max_ttl = max(configured_max, default_ttl, 1)
+
+    requested = (
+        _coerce_positive_int(request.ttl_seconds)
+        if request and request.ttl_seconds is not None
+        else None
+    )
+
+    ttl = requested or default_ttl
+    ttl = max(ttl, 1)
+    if ttl > max_ttl:
+        ttl = max_ttl
+    return ttl
+
+
+def _resolve_stf_control_template(stf_config: Dict) -> Optional[str]:
+    for key in (
+        "control_url_template",
+        "control_url",
+        "control_path_template",
+        "control_path",
+    ):
+        value = stf_config.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _build_stf_control_url(node: Dict, stf_config: Dict) -> str:
+    base_url = stf_config.get("base_url") or stf_config.get("url")
+    template = _resolve_stf_control_template(stf_config)
+
+    if template is None:
+        template = "/#!/control/{udid}"
+
+    udid = node.get("udid") or stf_config.get("udid")
+    if "{udid}" in template:
+        if not udid:
+            raise HTTPException(
+                status_code=400,
+                detail="STF control URL template requires a UDID but none is configured for this node.",
+            )
+        template = template.format(udid=udid)
+
+    if template.startswith("http://") or template.startswith("https://"):
+        return template
+
+    if not isinstance(base_url, str) or not base_url.strip():
+        raise HTTPException(status_code=400, detail="STF configuration missing base_url")
+
+    base_url = base_url.rstrip("/")
+    if template.startswith("#"):
+        return f"{base_url}/{template}"
+    if template.startswith("/"):
+        return f"{base_url}{template}"
+    if not template:
+        return base_url
+    return f"{base_url}/{template}"
 
 
 def _verify_admin_token(admin_token: Optional[str]) -> None:
@@ -439,6 +565,57 @@ async def node_status(node_id: str):
         raise HTTPException(status_code=404, detail="Node not found")
     logger.debug("Retrieved status for node %s", node_id)
     return json.loads(node_data)
+
+
+@router.post("/nodes/{node_id}/stf/session")
+async def open_stf_session(node_id: str, request: StfSessionRequest):
+    node = await _fetch_node(node_id)
+    stf_config = _ensure_stf_config(node)
+
+    if not _node_is_available(node):
+        raise HTTPException(status_code=409, detail="Node is not available for STF access")
+
+    ttl_seconds = _resolve_stf_session_ttl(stf_config, request)
+
+    expires_at = await create_stf_reservation(redis_client, node_id, node, ttl_seconds)
+    if expires_at is None:
+        raise HTTPException(status_code=409, detail="Node is already busy")
+
+    launch_url = _build_stf_control_url(node, stf_config)
+    jwt_token = stf_config.get("jwt") or stf_config.get("token")
+    jwt_query_param = stf_config.get("jwt_query_param")
+    if isinstance(jwt_query_param, str):
+        jwt_query_param = jwt_query_param.strip() or None
+    else:
+        jwt_query_param = None
+
+    logger.info(
+        "Reserved node %s for STF via API (ttl=%s, launch_url=%s)",
+        node_id,
+        ttl_seconds,
+        launch_url,
+    )
+
+    return {
+        "launch_url": launch_url,
+        "jwt": jwt_token,
+        "jwt_query_param": jwt_query_param,
+        "ttl_seconds": ttl_seconds,
+        "expires_at": datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
+    }
+
+
+@router.delete("/nodes/{node_id}/stf/session")
+async def close_stf_session(node_id: str):
+    await _fetch_node(node_id)
+
+    released = await release_stf_reservation(redis_client, node_id)
+    if not released:
+        raise HTTPException(status_code=404, detail="No STF reservation active for this node")
+
+    logger.info("Released STF reservation for node %s via API", node_id)
+    return Response(status_code=204)
+
 
 @router.get("/summary")
 async def summary():
