@@ -124,6 +124,28 @@ function getNodeTags(node) {
   return tags;
 }
 
+function nodeSupportsStf(node) {
+  if (!node || typeof node !== 'object') {
+    return false;
+  }
+
+  const resources = node.resources;
+  if (!resources || typeof resources !== 'object') {
+    return false;
+  }
+
+  const stfConfig = resources.stf;
+  if (!stfConfig || typeof stfConfig !== 'object') {
+    return false;
+  }
+
+  if (typeof stfConfig.enabled === 'boolean' && !stfConfig.enabled) {
+    return false;
+  }
+
+  return true;
+}
+
 function getStoredAdminToken() {
   try {
     return window.localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || '';
@@ -515,6 +537,78 @@ function handleEditNode(node, trigger) {
   }
 
   enterEditMode(node, { trigger });
+}
+
+async function handleOpenInStf(node, trigger) {
+  if (!node || !node.id) {
+    showToast('Unable to open STF without a node identifier.');
+    return;
+  }
+
+  const encodedId = encodeURIComponent(node.id);
+  const originalLabel = trigger ? trigger.textContent : '';
+
+  if (trigger) {
+    trigger.disabled = true;
+    trigger.textContent = 'Opening…';
+  }
+
+  let toastShown = false;
+
+  try {
+    const response = await fetchJson(
+      `/nodes/${encodedId}/stf/session`,
+      fetchOptions('POST')
+    );
+
+    let finalUrl = response.launch_url || '';
+    const jwt = response.jwt;
+    const queryParam = response.jwt_query_param;
+
+    if (jwt && queryParam && typeof finalUrl === 'string') {
+      try {
+        const parsedUrl = new URL(finalUrl);
+        parsedUrl.searchParams.set(queryParam, jwt);
+        finalUrl = parsedUrl.toString();
+      } catch (error) {
+        const separator = finalUrl.includes('?') ? '&' : '?';
+        finalUrl = `${finalUrl}${separator}${encodeURIComponent(queryParam)}=${encodeURIComponent(jwt)}`;
+      }
+    }
+
+    const openedWindow = finalUrl ? window.open(finalUrl, '_blank', 'noopener') : null;
+
+    if (!openedWindow) {
+      showToast('Popup blocked. Allow popups for this site to open STF.');
+      toastShown = true;
+    } else if (typeof openedWindow.focus === 'function') {
+      openedWindow.focus();
+    }
+
+    if (!toastShown) {
+      let message = 'Opening device in STF.';
+      const expiresAt = response.expires_at ? new Date(response.expires_at) : null;
+      if (expiresAt && !Number.isNaN(expiresAt.valueOf())) {
+        message += ` Reservation expires at ${expiresAt.toLocaleTimeString()}.`;
+      } else if (typeof response.ttl_seconds === 'number' && Number.isFinite(response.ttl_seconds)) {
+        message += ` Reservation lasts ${Math.round(response.ttl_seconds)} seconds.`;
+      }
+      showToast(message.trim());
+    }
+  } catch (error) {
+    const message = error?.message || 'Failed to open device in STF.';
+    showToast(message);
+  } finally {
+    if (trigger) {
+      trigger.disabled = false;
+      trigger.textContent = originalLabel || 'Open in STF';
+    }
+    try {
+      await loadNodes();
+    } catch (refreshError) {
+      console.warn('Failed to refresh nodes after STF action', refreshError);
+    }
+  }
 }
 
 function fetchOptions(method = 'GET', payload, { requireAdmin = false, adminTokenOverride } = {}) {
@@ -1203,6 +1297,10 @@ function renderRows(nodes) {
       `<button class="action-button" data-show="${node.id}">Show details</button>`,
     ];
 
+    if (nodeSupportsStf(node)) {
+      actions.push(`<button class="action-button" data-open-stf="${node.id}">Open in STF</button>`);
+    }
+
     if (isAdminUnlocked && adminToken) {
       actions.push(`<button class="action-button" data-edit="${node.id}">Edit</button>`);
       actions.push(`<button class="danger-button" data-delete="${node.id}">Delete</button>`);
@@ -1232,6 +1330,17 @@ function renderRows(nodes) {
       trigger.title = 'Session details are only available when the node is online.';
     } else {
       trigger.addEventListener('click', () => showNodeDetails(node, trigger));
+    }
+
+    const openStfButton = tr.querySelector('button[data-open-stf]');
+    if (openStfButton) {
+      if (status !== 'online') {
+        openStfButton.setAttribute('disabled', 'true');
+        openStfButton.setAttribute('aria-disabled', 'true');
+        openStfButton.title = 'STF access is only available when the node is online.';
+      } else {
+        openStfButton.addEventListener('click', () => handleOpenInStf(node, openStfButton));
+      }
     }
 
     const editButton = tr.querySelector('button[data-edit]');
