@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 SESSION_MAP_KEY = "session_map"
 NODE_SESSION_COUNTS_KEY = "node_session_counts"
 STF_RESERVATIONS_KEY = "stf_reservations"
+STF_JWT_CACHE_PREFIX = "stf_jwt:"
 
 
 async def sync_node_session_metadata(
@@ -110,6 +111,73 @@ async def _remove_stf_reservation(redis_client, node_id: str) -> bool:
     return bool(removed)
 
 
+def _stf_jwt_cache_key(node_id: str) -> str:
+    return f"{STF_JWT_CACHE_PREFIX}{node_id}"
+
+
+async def cache_stf_jwt(
+    redis_client,
+    node_id: str,
+    *,
+    token: str,
+    expires_at: int,
+    cookie_path: str,
+) -> None:
+    """Persist the generated STF JWT for ``node_id`` until ``expires_at``."""
+
+    payload = {
+        "token": token,
+        "expires_at": int(expires_at),
+        "cookie_path": cookie_path,
+    }
+    ttl_seconds = max(int(int(expires_at) - time.time()), 1)
+    await redis_client.set(
+        _stf_jwt_cache_key(node_id), json.dumps(payload), ex=ttl_seconds
+    )
+
+
+async def get_cached_stf_jwt(redis_client, node_id: str) -> Optional[Dict]:
+    """Return the cached STF JWT for ``node_id`` if it remains valid."""
+
+    cached = await redis_client.get(_stf_jwt_cache_key(node_id))
+    if not cached:
+        return None
+
+    try:
+        payload = json.loads(cached)
+    except json.JSONDecodeError:
+        logger.warning("Cached STF JWT payload for %s is invalid JSON", node_id)
+        await redis_client.delete(_stf_jwt_cache_key(node_id))
+        return None
+
+    token = payload.get("token")
+    expires_at_raw = payload.get("expires_at")
+    cookie_path = payload.get("cookie_path")
+
+    try:
+        expires_at = int(expires_at_raw)
+    except (TypeError, ValueError):
+        logger.warning("Cached STF JWT for %s has invalid expiry", node_id)
+        await redis_client.delete(_stf_jwt_cache_key(node_id))
+        return None
+
+    if not token or expires_at <= int(time.time()):
+        await redis_client.delete(_stf_jwt_cache_key(node_id))
+        return None
+
+    return {
+        "token": token,
+        "expires_at": expires_at,
+        "cookie_path": cookie_path if isinstance(cookie_path, str) else None,
+    }
+
+
+async def clear_cached_stf_jwt(redis_client, node_id: str) -> None:
+    """Remove any cached STF JWT for ``node_id``."""
+
+    await redis_client.delete(_stf_jwt_cache_key(node_id))
+
+
 async def create_stf_reservation(
     redis_client,
     node_id: str,
@@ -135,6 +203,7 @@ async def create_stf_reservation(
             # attempting to create a new one.
             await _remove_stf_reservation(redis_client, node_id)
             await release_node_session(redis_client, node_id)
+            await clear_cached_stf_jwt(redis_client, node_id)
 
     reservation = await reserve_node_session(redis_client, node_id, node)
     if reservation is None:
@@ -157,6 +226,7 @@ async def release_stf_reservation(redis_client, node_id: str) -> bool:
         return False
 
     await release_node_session(redis_client, node_id)
+    await clear_cached_stf_jwt(redis_client, node_id)
     logger.info("Released STF reservation for node %s", node_id)
     return True
 
@@ -184,6 +254,7 @@ async def release_expired_stf_reservations(redis_client, *, now: Optional[int] =
     for node_id in expired_nodes:
         await _remove_stf_reservation(redis_client, node_id)
         await release_node_session(redis_client, node_id)
+        await clear_cached_stf_jwt(redis_client, node_id)
         logger.info(
             "Automatically released expired STF reservation for node %s", node_id
         )

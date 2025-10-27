@@ -1,11 +1,15 @@
+import base64
 import csv
+import hmac
 import io
 import json
 import logging
 import os
 import secrets
+import time
 import uuid
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set
 
@@ -14,7 +18,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from backend.session_state import create_stf_reservation, release_stf_reservation
+from backend.session_state import (
+    cache_stf_jwt,
+    create_stf_reservation,
+    get_cached_stf_jwt,
+    release_stf_reservation,
+)
 
 router = APIRouter()
 redis_client = aioredis.from_url("redis://10.160.13.16:6379/0", decode_responses=True)
@@ -25,6 +34,10 @@ NODE_RESOURCES_CSV = Path(__file__).resolve().parent / "node_resources.csv"
 NODE_SESSION_COUNTS_KEY = "node_session_counts"
 ADMIN_USERNAME_ENV_VAR = "ADMIN_USERNAME"
 ADMIN_PASSWORD_ENV_VAR = "ADMIN_PASSWORD"
+
+JWT_EMAIL = "proxy@abc.com"
+JWT_NAME = "proxy"
+JWT_SECRET = "fortinet"
 CSV_TEMPLATE_HEADERS = [
     "id",
     "type",
@@ -100,16 +113,6 @@ def _load_global_stf_config() -> Dict:
     if template:
         config["control_url_template"] = template
 
-    jwt_token = _strip_or_none(os.getenv("STF_JWT") or os.getenv("STF_TOKEN"))
-    if jwt_token:
-        config["jwt"] = jwt_token
-
-    query_param = _strip_or_none(
-        os.getenv("STF_JWT_QUERY_PARAM") or os.getenv("STF_TOKEN_QUERY_PARAM")
-    )
-    if query_param:
-        config["jwt_query_param"] = query_param
-
     ttl = _coerce_positive_int(
         os.getenv("STF_SESSION_TTL_SECONDS") or os.getenv("STF_SESSION_TTL")
     )
@@ -152,6 +155,37 @@ class NodeRegistrationError(Exception):
 
 class StfSessionRequest(BaseModel):
     ttl_seconds: Optional[int] = None
+
+
+def _b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _generate_jwt(*, expires_at: int, udid: Optional[str]) -> str:
+    issued_at = int(time.time())
+    payload: Dict[str, object] = {
+        "email": JWT_EMAIL,
+        "name": JWT_NAME,
+        "iat": issued_at,
+        "exp": int(expires_at),
+    }
+
+    if udid:
+        payload["udid"] = udid
+        payload["scope"] = f"/control/{udid}"
+
+    header = {"alg": "HS256", "typ": "JWT"}
+
+    header_segment = _b64url_encode(
+        json.dumps(header, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    )
+    payload_segment = _b64url_encode(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    )
+    signing_input = f"{header_segment}.{payload_segment}".encode("ascii")
+    signature = hmac.new(JWT_SECRET.encode("utf-8"), signing_input, sha256).digest()
+    signature_segment = _b64url_encode(signature)
+    return f"{header_segment}.{payload_segment}.{signature_segment}"
 
 
 async def _fetch_node(node_id: str) -> Dict:
@@ -723,12 +757,37 @@ async def open_stf_session(node_id: str, request: StfSessionRequest):
         raise HTTPException(status_code=409, detail="Node is already busy")
 
     launch_url = _build_stf_control_url(node, stf_config)
-    jwt_token = stf_config.get("jwt") or stf_config.get("token")
-    jwt_query_param = stf_config.get("jwt_query_param")
-    if isinstance(jwt_query_param, str):
-        jwt_query_param = jwt_query_param.strip() or None
-    else:
-        jwt_query_param = None
+
+    expires_at_dt = datetime.fromtimestamp(expires_at, tz=timezone.utc)
+    udid = node.get("udid")
+    default_cookie_path = "/"
+    if isinstance(udid, str) and udid.strip():
+        default_cookie_path = f"/control/{udid.strip()}"
+
+    cached_jwt = await get_cached_stf_jwt(redis_client, node_id)
+    jwt_token: Optional[str] = None
+    jwt_cookie_path = default_cookie_path
+    if cached_jwt and cached_jwt.get("token"):
+        cached_expiry = cached_jwt.get("expires_at")
+        if isinstance(cached_expiry, int) and cached_expiry >= int(expires_at_dt.timestamp()):
+            jwt_token = cached_jwt["token"]
+            cached_path = cached_jwt.get("cookie_path")
+            if isinstance(cached_path, str) and cached_path.strip():
+                jwt_cookie_path = cached_path.strip()
+
+    if not jwt_token:
+        jwt_token = _generate_jwt(
+            expires_at=int(expires_at_dt.timestamp()),
+            udid=udid if isinstance(udid, str) else None,
+        )
+        jwt_cookie_path = default_cookie_path
+        await cache_stf_jwt(
+            redis_client,
+            node_id,
+            token=jwt_token,
+            expires_at=int(expires_at_dt.timestamp()),
+            cookie_path=jwt_cookie_path,
+        )
 
     logger.info(
         "Reserved node %s for STF via API (ttl=%s, launch_url=%s)",
@@ -740,9 +799,11 @@ async def open_stf_session(node_id: str, request: StfSessionRequest):
     return {
         "launch_url": launch_url,
         "jwt": jwt_token,
-        "jwt_query_param": jwt_query_param,
+        "jwt_query_param": None,
+        "jwt_cookie_name": "jwt",
+        "jwt_cookie_path": jwt_cookie_path,
         "ttl_seconds": ttl_seconds,
-        "expires_at": datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
+        "expires_at": expires_at_dt.isoformat(),
     }
 
 
