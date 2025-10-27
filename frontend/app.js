@@ -132,6 +132,10 @@ function nodeSupportsStf(node) {
     return false;
   }
 
+  if (typeof node.stf_enabled === 'boolean') {
+    return node.stf_enabled;
+  }
+
   const resources = node.resources;
   if (!resources || typeof resources !== 'object') {
     return false;
@@ -1162,17 +1166,16 @@ function updateDetailsModalActions(node) {
     return;
   }
 
+  detailsActions.hidden = false;
   detailsOpenStfButton.textContent = 'Open in STF';
 
-  if (!nodeSupportsStf(node)) {
-    detailsActions.hidden = true;
+  const supportsStf = nodeSupportsStf(node);
+  if (!supportsStf) {
     detailsOpenStfButton.disabled = true;
     detailsOpenStfButton.setAttribute('aria-disabled', 'true');
     detailsOpenStfButton.title = 'STF access is not configured for this node.';
     return;
   }
-
-  detailsActions.hidden = false;
 
   const status = deriveStatus(node);
   if (status === 'online') {
@@ -1366,6 +1369,7 @@ function renderRows(nodes) {
 
     const actions = [
       `<button class="action-button" data-show="${node.id}">Show details</button>`,
+      `<button class="action-button" data-open-stf="${node.id}">Open in STF</button>`,
     ];
 
     if (nodeSupportsStf(node)) {
@@ -1405,11 +1409,19 @@ function renderRows(nodes) {
 
     const openStfButton = tr.querySelector('button[data-open-stf]');
     if (openStfButton) {
-      if (status !== 'online') {
-        openStfButton.setAttribute('disabled', 'true');
+      const supportsStf = nodeSupportsStf(node);
+      if (!supportsStf) {
+        openStfButton.disabled = true;
+        openStfButton.setAttribute('aria-disabled', 'true');
+        openStfButton.title = 'STF access is not configured for this node.';
+      } else if (status !== 'online') {
+        openStfButton.disabled = true;
         openStfButton.setAttribute('aria-disabled', 'true');
         openStfButton.title = 'STF access is only available when the node is online.';
       } else {
+        openStfButton.disabled = false;
+        openStfButton.removeAttribute('aria-disabled');
+        openStfButton.title = 'Open this device in STF in a new tab.';
         openStfButton.addEventListener('click', () => handleOpenInStf(node, openStfButton));
       }
     }

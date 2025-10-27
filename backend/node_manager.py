@@ -47,6 +47,71 @@ SUPPORTED_DEVICE_POOLS = {"ios", "android", "android-emulator", "web"}
 DEFAULT_STF_SESSION_TTL_SECONDS = 15 * 60
 DEFAULT_STF_MAX_TTL_SECONDS = 60 * 60
 
+
+def _normalise_bool_flag(value) -> Optional[bool]:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if not lowered:
+            return None
+        if lowered in {"true", "1", "yes", "y", "on"}:
+            return True
+        if lowered in {"false", "0", "no", "n", "off"}:
+            return False
+    return None
+
+
+def _load_global_stf_config() -> Dict:
+    config: Dict[str, Optional[str]] = {}
+
+    base_url = _strip_or_none(os.getenv("STF_BASE_URL") or os.getenv("STF_URL"))
+    if base_url:
+        config["base_url"] = base_url
+
+    template = _strip_or_none(
+        os.getenv("STF_CONTROL_URL_TEMPLATE")
+        or os.getenv("STF_CONTROL_URL")
+        or os.getenv("STF_CONTROL_PATH_TEMPLATE")
+        or os.getenv("STF_CONTROL_PATH")
+    )
+    if template:
+        config["control_url_template"] = template
+
+    jwt_token = _strip_or_none(os.getenv("STF_JWT") or os.getenv("STF_TOKEN"))
+    if jwt_token:
+        config["jwt"] = jwt_token
+
+    query_param = _strip_or_none(
+        os.getenv("STF_JWT_QUERY_PARAM") or os.getenv("STF_TOKEN_QUERY_PARAM")
+    )
+    if query_param:
+        config["jwt_query_param"] = query_param
+
+    ttl = _coerce_positive_int(
+        os.getenv("STF_SESSION_TTL_SECONDS") or os.getenv("STF_SESSION_TTL")
+    )
+    if ttl:
+        config["session_ttl_seconds"] = ttl
+
+    max_ttl = _coerce_positive_int(
+        os.getenv("STF_MAX_SESSION_TTL_SECONDS")
+        or os.getenv("STF_MAX_SESSION_TTL")
+    )
+    if max_ttl:
+        config["max_session_ttl_seconds"] = max_ttl
+
+    enabled = _normalise_bool_flag(os.getenv("STF_ENABLED"))
+    if enabled is not None:
+        config["enabled"] = enabled
+
+    return config
+
+
+_GLOBAL_STF_CONFIG = _load_global_stf_config()
+
 _ADMIN_USERNAME = os.getenv(ADMIN_USERNAME_ENV_VAR, "admin")
 _ADMIN_PASSWORD = os.getenv(ADMIN_PASSWORD_ENV_VAR, "Fortinet01!")
 _ACTIVE_ADMIN_TOKENS: Set[str] = set()
@@ -91,20 +156,73 @@ async def _fetch_node(node_id: str) -> Dict:
     return node
 
 
-def _ensure_stf_config(node: Dict) -> Dict:
+def _merge_stf_config(node: Dict) -> Optional[Dict]:
+    merged: Dict[str, object] = {}
+
+    if _GLOBAL_STF_CONFIG:
+        merged.update(_GLOBAL_STF_CONFIG)
+
     resources = node.get("resources")
-    if not isinstance(resources, dict):
+    if isinstance(resources, dict):
+        stf_config = resources.get("stf")
+        if isinstance(stf_config, dict):
+            merged.update(stf_config)
+
+    cleaned: Dict[str, object] = {}
+    for key, value in merged.items():
+        if value is None:
+            continue
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                continue
+            cleaned[key] = stripped
+        else:
+            cleaned[key] = value
+
+    if not cleaned:
+        return None
+
+    enabled_flag = _normalise_bool_flag(cleaned.get("enabled"))
+    if enabled_flag is False:
+        return None
+    if enabled_flag is True:
+        cleaned["enabled"] = True
+    else:
+        cleaned.pop("enabled", None)
+
+    base_url = cleaned.get("base_url") or cleaned.get("url")
+    if isinstance(base_url, str):
+        cleaned["base_url"] = base_url.strip()
+    if cleaned.get("base_url") == "":
+        cleaned.pop("base_url", None)
+    if "url" in cleaned and cleaned.get("url") == cleaned.get("base_url"):
+        cleaned.pop("url", None)
+
+    return cleaned
+
+
+def _ensure_stf_config(node: Dict) -> Dict:
+    stf_config = _merge_stf_config(node)
+    if not stf_config:
         raise HTTPException(
             status_code=404, detail="Node is not configured for STF access"
         )
 
-    stf_config = resources.get("stf")
-    if not isinstance(stf_config, dict):
-        raise HTTPException(
-            status_code=404, detail="Node is not configured for STF access"
-        )
+    return dict(stf_config)
 
-    return stf_config
+
+def _node_supports_stf(node: Dict) -> bool:
+    config = _merge_stf_config(node)
+    if not config:
+        return False
+
+    try:
+        _build_stf_control_url(node, dict(config))
+    except HTTPException:
+        return False
+
+    return True
 
 
 def _coerce_positive_int(value, *, minimum: int = 1) -> Optional[int]:
@@ -520,7 +638,19 @@ async def admin_ping(_: None = Depends(require_admin)):
 async def list_nodes():
     nodes = await redis_client.hgetall("nodes")
     logger.debug("Listing %d nodes", len(nodes))
-    return {node_id: json.loads(data) for node_id, data in nodes.items()}
+    result: Dict[str, Dict] = {}
+
+    for node_id, data in nodes.items():
+        try:
+            node = json.loads(data)
+        except json.JSONDecodeError:
+            logger.warning("Skipping malformed node data for %s", node_id)
+            continue
+
+        node["stf_enabled"] = _node_supports_stf(node)
+        result[node_id] = node
+
+    return result
 
 
 @router.get("/nodes/available")
@@ -564,7 +694,60 @@ async def node_status(node_id: str):
     if not node_data:
         raise HTTPException(status_code=404, detail="Node not found")
     logger.debug("Retrieved status for node %s", node_id)
-    return json.loads(node_data)
+    node = json.loads(node_data)
+    node["stf_enabled"] = _node_supports_stf(node)
+    return node
+
+
+@router.post("/nodes/{node_id}/stf/session")
+async def open_stf_session(node_id: str, request: StfSessionRequest):
+    node = await _fetch_node(node_id)
+    stf_config = _ensure_stf_config(node)
+
+    if not _node_is_available(node):
+        raise HTTPException(status_code=409, detail="Node is not available for STF access")
+
+    ttl_seconds = _resolve_stf_session_ttl(stf_config, request)
+
+    expires_at = await create_stf_reservation(redis_client, node_id, node, ttl_seconds)
+    if expires_at is None:
+        raise HTTPException(status_code=409, detail="Node is already busy")
+
+    launch_url = _build_stf_control_url(node, stf_config)
+    jwt_token = stf_config.get("jwt") or stf_config.get("token")
+    jwt_query_param = stf_config.get("jwt_query_param")
+    if isinstance(jwt_query_param, str):
+        jwt_query_param = jwt_query_param.strip() or None
+    else:
+        jwt_query_param = None
+
+    logger.info(
+        "Reserved node %s for STF via API (ttl=%s, launch_url=%s)",
+        node_id,
+        ttl_seconds,
+        launch_url,
+    )
+
+    return {
+        "launch_url": launch_url,
+        "jwt": jwt_token,
+        "jwt_query_param": jwt_query_param,
+        "ttl_seconds": ttl_seconds,
+        "expires_at": datetime.fromtimestamp(expires_at, tz=timezone.utc).isoformat(),
+    }
+
+
+@router.delete("/nodes/{node_id}/stf/session")
+async def close_stf_session(node_id: str):
+    await _fetch_node(node_id)
+
+    released = await release_stf_reservation(redis_client, node_id)
+    if not released:
+        raise HTTPException(status_code=404, detail="No STF reservation active for this node")
+
+    logger.info("Released STF reservation for node %s via API", node_id)
+    return Response(status_code=204)
+
 
 
 @router.post("/nodes/{node_id}/stf/session")
