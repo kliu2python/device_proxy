@@ -11,12 +11,12 @@ import uuid
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Header, HTTPException
-from fastapi.responses import Response
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel, Field
 
 from backend.session_state import (
     cache_stf_jwt,
@@ -24,6 +24,7 @@ from backend.session_state import (
     get_cached_stf_jwt,
     release_stf_reservation,
 )
+from backend.stf import DEFAULT_ACTIONS as DEFAULT_STF_ACTIONS, StfApiClient, StfApiError
 
 router = APIRouter()
 redis_client = aioredis.from_url("redis://10.160.13.16:6379/0", decode_responses=True)
@@ -130,6 +131,30 @@ def _load_global_stf_config() -> Dict:
     if enabled is not None:
         config["enabled"] = enabled
 
+    api_base_url = _strip_or_none(os.getenv("STF_API_BASE_URL") or os.getenv("STF_API_URL"))
+    if api_base_url:
+        config["api_base_url"] = api_base_url
+
+    api_token = _strip_or_none(
+        os.getenv("STF_API_TOKEN")
+        or os.getenv("STF_API_KEY")
+        or os.getenv("STF_TOKEN")
+    )
+    if api_token:
+        config["api_token"] = api_token
+
+    verify_ssl = _normalise_bool_flag(
+        os.getenv("STF_API_VERIFY_SSL") or os.getenv("STF_VERIFY_SSL")
+    )
+    if verify_ssl is not None:
+        config["verify_ssl"] = verify_ssl
+
+    api_timeout = _coerce_positive_int(
+        os.getenv("STF_API_TIMEOUT_SECONDS") or os.getenv("STF_API_TIMEOUT")
+    )
+    if api_timeout:
+        config["api_timeout_seconds"] = api_timeout
+
     return config
 
 
@@ -155,6 +180,47 @@ class NodeRegistrationError(Exception):
 
 class StfSessionRequest(BaseModel):
     ttl_seconds: Optional[int] = None
+
+
+class StfUseRequest(BaseModel):
+    options: Dict[str, Any] = Field(default_factory=dict)
+
+
+class StfActionRequest(BaseModel):
+    options: Dict[str, Any] = Field(default_factory=dict)
+
+
+class StfInstallRequest(BaseModel):
+    url: Optional[str] = None
+    app_url: Optional[str] = None
+    package_url: Optional[str] = None
+    title: Optional[str] = None
+    options: Dict[str, Any] = Field(default_factory=dict)
+
+    def resolve_payload(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {}
+
+        for candidate in (self.url, self.app_url, self.package_url):
+            value = _strip_or_none(candidate) if isinstance(candidate, str) else None
+            if value:
+                payload["url"] = value
+                break
+
+        if "url" not in payload:
+            raise HTTPException(
+                status_code=400,
+                detail="An app URL must be provided to install an application via STF.",
+            )
+
+        title = _strip_or_none(self.title)
+        if title:
+            payload["title"] = title
+
+        for key, value in (self.options or {}).items():
+            if key not in payload:
+                payload[key] = value
+
+        return payload
 
 
 def _b64url_encode(data: bytes) -> str:
@@ -259,6 +325,194 @@ def _ensure_stf_config(node: Dict) -> Dict:
     return dict(stf_config)
 
 
+def _resolve_stf_device_serial(node: Dict, stf_config: Dict) -> str:
+    for key in ("serial", "device_serial", "stf_serial"):
+        value = stf_config.get(key)
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped:
+                return stripped
+
+    for source in (node.get("udid"), stf_config.get("udid"), node.get("serial")):
+        if isinstance(source, str):
+            stripped = source.strip()
+            if stripped:
+                return stripped
+
+    raise HTTPException(
+        status_code=400,
+        detail="STF device serial/UDID is not configured for this node.",
+    )
+
+
+def _create_stf_api_client(stf_config: Dict) -> StfApiClient:
+    api_base = stf_config.get("api_base_url") or stf_config.get("api_url")
+    if not isinstance(api_base, str) or not api_base.strip():
+        base_candidate = stf_config.get("base_url") or stf_config.get("url")
+        if isinstance(base_candidate, str) and base_candidate.strip():
+            api_base = f"{base_candidate.rstrip('/')}/api/v1"
+
+    if not isinstance(api_base, str) or not api_base.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="STF API base URL is not configured for this node.",
+        )
+
+    api_base = api_base.strip()
+
+    token: Optional[str] = None
+    for key in ("api_token", "apiKey", "api_key", "token", "auth_token"):
+        value = stf_config.get(key)
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped:
+                token = stripped
+                break
+
+    verify_setting = stf_config.get("verify_ssl")
+    if isinstance(verify_setting, bool):
+        verify_ssl = verify_setting
+    elif isinstance(verify_setting, str):
+        normalised = _normalise_bool_flag(verify_setting)
+        verify_ssl = True if normalised is None else normalised
+    else:
+        verify_ssl = True
+
+    timeout_seconds = (
+        _coerce_positive_int(stf_config.get("api_timeout_seconds"))
+        or _coerce_positive_int(stf_config.get("api_timeout"))
+    )
+    timeout = float(timeout_seconds) if timeout_seconds else None
+
+    return StfApiClient(
+        base_url=api_base,
+        token=token,
+        timeout=timeout,
+        verify_ssl=verify_ssl,
+    )
+
+
+def _resolve_stf_action_config(stf_config: Dict, action_name: str) -> Dict[str, Any]:
+    action = dict(DEFAULT_STF_ACTIONS.get(action_name, {}))
+
+    overrides = stf_config.get("actions")
+    if isinstance(overrides, dict):
+        override = overrides.get(action_name)
+        if isinstance(override, dict):
+            for key, value in override.items():
+                if value is not None:
+                    action[key] = value
+
+    return action
+
+
+async def _perform_stf_action(
+    node: Dict,
+    stf_config: Dict,
+    action_name: str,
+    *,
+    payload: Optional[Dict[str, Any]] = None,
+):
+    action_config = _resolve_stf_action_config(stf_config, action_name)
+    if not action_config:
+        raise HTTPException(
+            status_code=400,
+            detail=f"STF action '{action_name}' is not configured for this node.",
+        )
+
+    method = action_config.get("method") or action_config.get("http_method") or "POST"
+    method = str(method).strip().upper() or "POST"
+
+    path_template = action_config.get("path") or action_config.get("url")
+    if not isinstance(path_template, str) or not path_template.strip():
+        raise HTTPException(
+            status_code=400,
+            detail=f"STF action '{action_name}' does not define a valid path template.",
+        )
+
+    serial = _resolve_stf_device_serial(node, stf_config)
+
+    try:
+        path = path_template.format(
+            serial=serial,
+            udid=serial,
+            node_id=node.get("id"),
+            id=node.get("id"),
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"STF action '{action_name}' path references unknown placeholder "
+                f"'{exc.args[0]}'"
+            ),
+        ) from exc
+
+    payload_mode = str(action_config.get("payload_mode") or "json").lower()
+    request_kwargs: Dict[str, Any] = {}
+    if payload is not None:
+        if payload_mode == "json":
+            request_kwargs["json"] = payload
+        elif payload_mode in {"form", "data"}:
+            request_kwargs["data"] = payload
+        else:
+            request_kwargs["json"] = payload
+
+    headers: Dict[str, str] = {}
+    action_headers = action_config.get("headers")
+    if isinstance(action_headers, dict):
+        for key, value in action_headers.items():
+            if isinstance(key, str) and value is not None:
+                headers[key] = str(value)
+
+    client = _create_stf_api_client(stf_config)
+
+    try:
+        response = await client.request(
+            method,
+            path,
+            headers=headers or None,
+            **request_kwargs,
+        )
+    except StfApiError as exc:
+        status = exc.status_code or 502
+        detail = str(exc) or f"STF action '{action_name}' failed"
+        raise HTTPException(
+            status_code=status if 400 <= status <= 599 else 502,
+            detail=detail,
+        ) from exc
+
+    return response, action_config
+
+
+def _stf_response_to_fastapi(
+    response,
+    action_name: str,
+    action_config: Dict[str, Any],
+):
+    expect_json = bool(action_config.get("expect_json", True))
+    status_code = response.status_code or 200
+
+    if expect_json:
+        if status_code == 204 or not response.content:
+            if status_code == 200 and not response.content:
+                status_code = 204
+            return Response(status_code=status_code)
+
+        try:
+            payload = response.json()
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"STF action '{action_name}' returned invalid JSON response.",
+            ) from exc
+
+        return JSONResponse(content=payload, status_code=status_code)
+
+    media_type = response.headers.get("Content-Type") or "application/octet-stream"
+    return Response(content=response.content, media_type=media_type, status_code=status_code)
+
+
 def _node_supports_stf(node: Dict) -> bool:
     config = _merge_stf_config(node)
     if not config:
@@ -317,16 +571,38 @@ def _build_stf_control_url(node: Dict, stf_config: Dict) -> str:
     template = _resolve_stf_control_template(stf_config)
 
     if template is None:
-        template = "/#!/control/{udid}"
+        template = "/#!/control/{serial}"
 
-    udid = node.get("udid") or stf_config.get("udid")
-    if "{udid}" in template:
-        if not udid:
-            raise HTTPException(
-                status_code=400,
-                detail="STF control URL template requires a UDID but none is configured for this node.",
-            )
-        template = template.format(udid=udid)
+    raw_template = template
+
+    serial = _resolve_stf_device_serial(node, stf_config)
+    udid = node.get("udid") or stf_config.get("udid") or serial
+
+    if "{udid" in raw_template and not node.get("udid") and not stf_config.get("udid"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "STF control URL template requires a UDID but none is configured for this node."
+            ),
+        )
+
+    try:
+        template = raw_template.format(
+            serial=serial,
+            device_serial=serial,
+            stf_serial=serial,
+            udid=udid,
+            node_id=node.get("id"),
+            id=node.get("id"),
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "STF control URL template references unknown placeholder "
+                f"'{exc.args[0]}'"
+            ),
+        ) from exc
 
     if template.startswith("http://") or template.startswith("https://"):
         return template
@@ -740,6 +1016,99 @@ async def node_status(node_id: str):
     node = json.loads(node_data)
     node["stf_enabled"] = _node_supports_stf(node)
     return node
+
+
+@router.post("/nodes/{node_id}/stf/use")
+async def stf_use_device(node_id: str, request: Optional[StfUseRequest] = None):
+    node = await _fetch_node(node_id)
+    stf_config = _ensure_stf_config(node)
+
+    options = request.options if request else {}
+    payload = options or None
+
+    response, action_config = await _perform_stf_action(
+        node,
+        stf_config,
+        "use",
+        payload=payload,
+    )
+
+    logger.info("Requested STF use action for node %s", node_id)
+
+    return _stf_response_to_fastapi(response, "use", action_config)
+
+
+@router.delete("/nodes/{node_id}/stf/use")
+async def stf_stop_using_device(node_id: str):
+    node = await _fetch_node(node_id)
+    stf_config = _ensure_stf_config(node)
+
+    response, action_config = await _perform_stf_action(
+        node,
+        stf_config,
+        "stop",
+    )
+
+    logger.info("Requested STF stop action for node %s", node_id)
+
+    return _stf_response_to_fastapi(response, "stop", action_config)
+
+
+@router.post("/nodes/{node_id}/stf/install")
+async def stf_install_app(node_id: str, request: StfInstallRequest):
+    node = await _fetch_node(node_id)
+    stf_config = _ensure_stf_config(node)
+
+    payload = request.resolve_payload()
+
+    response, action_config = await _perform_stf_action(
+        node,
+        stf_config,
+        "install",
+        payload=payload,
+    )
+
+    logger.info("Requested STF install action for node %s", node_id)
+
+    return _stf_response_to_fastapi(response, "install", action_config)
+
+
+@router.post("/nodes/{node_id}/stf/screenshot")
+async def stf_capture_screenshot(
+    node_id: str, request: Optional[StfActionRequest] = None
+):
+    node = await _fetch_node(node_id)
+    stf_config = _ensure_stf_config(node)
+
+    options = request.options if request else {}
+    payload = options or None
+
+    response, action_config = await _perform_stf_action(
+        node,
+        stf_config,
+        "screenshot",
+        payload=payload,
+    )
+
+    logger.info("Requested STF screenshot action for node %s", node_id)
+
+    return _stf_response_to_fastapi(response, "screenshot", action_config)
+
+
+@router.get("/nodes/{node_id}/stf/device")
+async def stf_device_details(node_id: str):
+    node = await _fetch_node(node_id)
+    stf_config = _ensure_stf_config(node)
+
+    response, action_config = await _perform_stf_action(
+        node,
+        stf_config,
+        "device",
+    )
+
+    logger.debug("Retrieved STF device details for node %s", node_id)
+
+    return _stf_response_to_fastapi(response, "device", action_config)
 
 
 @router.post("/nodes/{node_id}/stf/session")
