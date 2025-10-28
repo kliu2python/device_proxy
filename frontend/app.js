@@ -648,7 +648,7 @@ async function handleOpenInStf(node, trigger) {
   try {
     const response = await fetchJson(
       `/nodes/${encodedId}/stf/session`,
-      fetchOptions('POST')
+      fetchOptions('POST', {})
     );
 
     let finalUrl = response.launch_url || '';
