@@ -800,6 +800,14 @@ body {
   font-style: italic;
 }
 
+.stf-session__message {
+  margin: 0;
+  padding: 0 1.5rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
 .stf-session__frame {
   flex: 1 1 auto;
   width: 100%;

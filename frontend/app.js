@@ -16,9 +16,8 @@ const stfSessionContainer = document.getElementById('stf-session-container');
 const stfSessionTitle = document.getElementById('stf-session-title');
 const stfSessionSubtitle = document.getElementById('stf-session-subtitle');
 const stfSessionStatus = document.getElementById('stf-session-status');
-const stfSessionActions = document.getElementById('stf-session-actions');
 const stfSessionMessage = document.getElementById('stf-session-message');
-const stfSessionReopenButton = document.getElementById('stf-session-reopen');
+const stfSessionFrame = document.getElementById('stf-session-frame');
 const stfSessionCloseButton = document.getElementById('stf-session-close');
 const filterForm = document.getElementById('filters-form');
 const filterSearch = document.getElementById('filter-search');
@@ -90,7 +89,6 @@ let isFiltersMenuOpen = false;
 let editingNodeId = '';
 let detailsModalNode = null;
 let activeStfSession = null;
-let stfSessionWindow = null;
 
 const REFRESH_INTERVAL = 15000;
 const PAGE_SIZE = 5;
@@ -692,10 +690,9 @@ async function handleOpenInStf(node, trigger) {
 
     markNodeBusyLocally(node.id);
     setActiveStfSession(session);
-    launchStfSessionWindow(session);
     sessionActivated = true;
 
-    let message = 'Opening device in STF in a new browser tab.';
+    let message = 'STF session ready. The device is displayed below.';
     const statusMessage = buildSessionStatusMessage(session);
     if (statusMessage) {
       message += ` ${statusMessage}`;
@@ -819,72 +816,36 @@ function buildSessionStatusMessage(session) {
   return '';
 }
 
-function launchStfSessionWindow(session) {
-  if (typeof window === 'undefined') {
+function setStfSessionFrameSource(url) {
+  if (!stfSessionFrame) {
     return;
   }
 
-  if (!session || typeof session !== 'object') {
+  const targetUrl = typeof url === 'string' ? url.trim() : '';
+
+  if (!targetUrl) {
+    clearStfSessionFrameSource();
     return;
   }
 
-  const rawLaunchUrl = typeof session.launchUrl === 'string' ? session.launchUrl.trim() : '';
-  if (!rawLaunchUrl) {
+  if (stfSessionFrame.dataset.src === targetUrl) {
     return;
   }
 
-  const jwt = typeof session.jwt === 'string' ? session.jwt.trim() : '';
-  const queryParam = typeof session.jwtQueryParam === 'string' ? session.jwtQueryParam.trim() : '';
-  const paramName = queryParam || 'jwt';
-  let targetUrl = rawLaunchUrl;
+  stfSessionFrame.dataset.src = targetUrl;
+  stfSessionFrame.src = targetUrl;
+}
 
-  if (jwt) {
-    try {
-      const parsedUrl = new URL(rawLaunchUrl);
-      if (!parsedUrl.searchParams.has(paramName)) {
-        parsedUrl.searchParams.set(paramName, jwt);
-      }
-      targetUrl = parsedUrl.toString();
-    } catch (parseError) {
-      const encodedParam = encodeURIComponent(paramName);
-      const hasParam =
-        rawLaunchUrl.includes(`?${encodedParam}=`) || rawLaunchUrl.includes(`&${encodedParam}=`);
-      if (!hasParam) {
-        const separator = rawLaunchUrl.includes('?') ? '&' : '?';
-        targetUrl = `${rawLaunchUrl}${separator}${encodedParam}=${encodeURIComponent(jwt)}`;
-      }
-    }
+function clearStfSessionFrameSource() {
+  if (!stfSessionFrame) {
+    return;
   }
 
-  const existingWindow = getOpenStfSessionWindow();
-  if (existingWindow) {
-    try {
-      existingWindow.close();
-    } catch (closeError) {
-      console.warn('Unable to close previous STF session window', closeError);
-    }
-  }
-
-  let openedWindow = null;
+  delete stfSessionFrame.dataset.src;
   try {
-    openedWindow = window.open(targetUrl, '_blank', 'noopener');
+    stfSessionFrame.src = 'about:blank';
   } catch (error) {
-    console.error('Failed to open STF session window', error);
-  }
-
-  if (!openedWindow) {
-    showToast('Allow pop-ups to open the STF session in a new tab.');
-    return;
-  }
-
-  stfSessionWindow = openedWindow;
-
-  try {
-    if (typeof openedWindow.focus === 'function') {
-      openedWindow.focus();
-    }
-  } catch (focusError) {
-    console.warn('Unable to focus STF session window', focusError);
+    stfSessionFrame.removeAttribute('src');
   }
 }
 
@@ -918,24 +879,22 @@ function updateStfSessionUi(session) {
 
   const launchUrl = typeof session?.launchUrl === 'string' ? session.launchUrl.trim() : '';
 
+  if (document?.body) {
+    document.body.classList.add('stf-session-active');
+  }
+
+  setStfSessionFrameSource(launchUrl);
+
   if (stfSessionMessage) {
     const messageParts = [];
     if (launchUrl) {
-      messageParts.push('The STF session opened in a new browser tab.');
-      messageParts.push('If nothing appeared, allow pop-ups and use "Open STF session again".');
+      messageParts.push('The STF session is displayed below.');
     } else {
       messageParts.push('An STF session is active.');
     }
+    messageParts.push('Select "End session" when you are finished to release the device.');
     stfSessionMessage.textContent = messageParts.join(' ');
     stfSessionMessage.hidden = false;
-  }
-
-  if (stfSessionActions) {
-    stfSessionActions.hidden = !launchUrl;
-  }
-
-  if (stfSessionReopenButton) {
-    stfSessionReopenButton.disabled = !launchUrl;
   }
 
   if (stfSessionCloseButton) {
@@ -973,13 +932,11 @@ function hideStfSessionUi() {
     stfSessionMessage.hidden = true;
   }
 
-  if (stfSessionActions) {
-    stfSessionActions.hidden = true;
+  if (document?.body) {
+    document.body.classList.remove('stf-session-active');
   }
 
-  if (stfSessionReopenButton) {
-    stfSessionReopenButton.disabled = true;
-  }
+  clearStfSessionFrameSource();
 }
 
 function setActiveStfSession(session) {
@@ -989,7 +946,6 @@ function setActiveStfSession(session) {
     updateStfSessionUi(activeStfSession);
   } else {
     hideStfSessionUi();
-    closeStfSessionWindow();
   }
 
   refreshNodeViews();
@@ -1082,8 +1038,6 @@ async function closeActiveStfSession({ silent = false } = {}) {
     setActiveStfSession(session);
     return;
   }
-
-  closeStfSessionWindow();
 
   try {
     await loadNodes();
@@ -2062,16 +2016,6 @@ if (stfSessionCloseButton) {
   });
 }
 
-if (stfSessionReopenButton) {
-  stfSessionReopenButton.addEventListener('click', () => {
-    if (!activeStfSession) {
-      showToast('No active STF session is available to open.');
-      return;
-    }
-    launchStfSessionWindow(activeStfSession);
-  });
-}
-
 if (adminToolsTrigger) {
   adminToolsTrigger.addEventListener('click', () => {
     if (isAdminUnlocked && adminToken) {
@@ -2101,37 +2045,4 @@ window.addEventListener('beforeunload', () => {
   if (activeStfSession?.nodeId) {
     sendStfReleaseKeepalive(activeStfSession.nodeId);
   }
-  closeStfSessionWindow();
 });
-
-function getOpenStfSessionWindow() {
-  if (!stfSessionWindow) {
-    return null;
-  }
-
-  try {
-    if (stfSessionWindow.closed) {
-      stfSessionWindow = null;
-      return null;
-    }
-  } catch (error) {
-    console.warn('Unable to verify STF session window state', error);
-  }
-
-  return stfSessionWindow;
-}
-
-function closeStfSessionWindow() {
-  const openWindow = getOpenStfSessionWindow();
-  if (!openWindow) {
-    return;
-  }
-
-  try {
-    openWindow.close();
-  } catch (error) {
-    console.warn('Unable to close STF session window', error);
-  } finally {
-    stfSessionWindow = null;
-  }
-}
