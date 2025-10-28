@@ -147,6 +147,13 @@ const ADMIN_TOKEN_STORAGE_KEY = 'deviceProxyAdminToken';
 const normalisedPathname = window.location.pathname.replace(/\/+$/, '') || '/';
 const isAdminRoute = normalisedPathname === '/admin';
 
+const STOP_USING_MESSAGE_TYPE = 'device-proxy:stop-using';
+const STOP_USING_DELAY_MS = 150;
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+}
+
 function normaliseText(value) {
   if (typeof value !== 'string') {
     return '';
@@ -939,6 +946,94 @@ function hideStfSessionUi() {
   clearStfSessionFrameSource();
 }
 
+function sendStopUsingPostMessage(session) {
+  if (!stfSessionFrame || !stfSessionFrame.contentWindow) {
+    return;
+  }
+
+  try {
+    stfSessionFrame.contentWindow.postMessage(
+      {
+        type: STOP_USING_MESSAGE_TYPE,
+        nodeId: session?.nodeId ?? null,
+      },
+      '*'
+    );
+  } catch (error) {
+    console.debug('Unable to send STF stop-using message', error);
+  }
+}
+
+function normaliseStopUsingLabel(text) {
+  if (typeof text !== 'string') {
+    return '';
+  }
+
+  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function findStopUsingButton(doc) {
+  if (!doc || typeof doc.querySelector !== 'function') {
+    return null;
+  }
+
+  const selectors = [
+    '[ng-click="ctrl.stopUsing()"]',
+    '[ng-click$="stopUsing()"]',
+    '[data-action="stop-using"]',
+    '[data-testid="stop-using"]',
+    'button.stop-using',
+    'button[data-stop-using]',
+  ];
+
+  for (const selector of selectors) {
+    try {
+      const element = doc.querySelector(selector);
+      if (element) {
+        return element;
+      }
+    } catch (error) {
+      // Ignore selector errors and keep searching.
+    }
+  }
+
+  const candidates = Array.from(doc.querySelectorAll('button, a, [role="button"]'));
+  for (const candidate of candidates) {
+    const label = normaliseStopUsingLabel(candidate?.textContent);
+    if (label && (label === 'stop using' || label.startsWith('stop using '))) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
+function triggerStopUsingInStf(session) {
+  sendStopUsingPostMessage(session);
+
+  if (!stfSessionFrame) {
+    return false;
+  }
+
+  try {
+    const frameWindow = stfSessionFrame.contentWindow;
+    if (!frameWindow) {
+      return false;
+    }
+
+    const frameDocument = frameWindow.document;
+    const stopButton = findStopUsingButton(frameDocument);
+    if (stopButton && typeof stopButton.click === 'function') {
+      stopButton.click();
+      return true;
+    }
+  } catch (error) {
+    console.debug('Unable to access STF frame to trigger stop', error);
+  }
+
+  return false;
+}
+
 function setActiveStfSession(session) {
   activeStfSession = session || null;
 
@@ -1016,6 +1111,16 @@ async function closeActiveStfSession({ silent = false } = {}) {
   }
 
   const session = activeStfSession;
+  const stopTriggered = triggerStopUsingInStf(session);
+
+  if (stopTriggered) {
+    try {
+      await delay(STOP_USING_DELAY_MS);
+    } catch (error) {
+      console.debug('Stop-using delay interrupted', error);
+    }
+  }
+
   setActiveStfSession(null);
 
   let releaseFailed = false;
