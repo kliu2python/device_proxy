@@ -808,35 +808,6 @@ body {
   line-height: 1.4;
 }
 
-.stf-session__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  padding: 0 1.5rem 0.75rem;
-}
-
-.stf-session__actions[hidden] {
-  display: none;
-}
-
-.stf-session__monitor {
-  margin: 0 1.5rem 1rem;
-  padding: 0.75rem 1rem;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
-  font-family: var(--font-mono, 'SFMono-Regular', 'Consolas', 'Liberation Mono', monospace);
-  font-size: 0.85rem;
-  line-height: 1.5;
-  max-height: 14rem;
-  overflow: auto;
-  color: var(--text);
-}
-
-.stf-session__monitor[hidden] {
-  display: none;
-}
-
 .stf-session__frame {
   flex: 1 1 auto;
   width: 100%;
