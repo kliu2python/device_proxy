@@ -350,7 +350,11 @@ def _create_stf_api_client(stf_config: Dict) -> StfApiClient:
     if not isinstance(api_base, str) or not api_base.strip():
         base_candidate = stf_config.get("base_url") or stf_config.get("url")
         if isinstance(base_candidate, str) and base_candidate.strip():
-            api_base = f"{base_candidate.rstrip('/')}/api/v1"
+            cleaned_base = base_candidate.strip().rstrip("/")
+            if cleaned_base.endswith("/api/v1"):
+                api_base = cleaned_base
+            else:
+                api_base = f"{cleaned_base}/api/v1"
 
     if not isinstance(api_base, str) or not api_base.strip():
         raise HTTPException(
