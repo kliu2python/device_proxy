@@ -47,3 +47,16 @@ The updated CSV template that you can download from `/nodes/template` now includ
 * The browser must allow popups for the Device Proxy UI so the STF tab can be opened successfully.
 
 Once the configuration is in place, reload the UI. Eligible devices will display the **Open in STF** button, and selecting it will initiate a reservation and open the STF control interface in a new tab.
+
+## Using STF device controls from the proxy UI
+
+When STF exposes its REST API, the proxy can surface additional device controls directly within the portal. Configure the following environment variables (or provide matching values in the node `resources.stf` object) so the backend can reach the API:
+
+| Variable | Description |
+| --- | --- |
+| `STF_API_BASE_URL` | Base URL of the STF REST API (for example `https://stf.example.com/api/v1`). Defaults to `<STF_BASE_URL>/api/v1` when omitted. |
+| `STF_API_TOKEN` | API token used for bearer authentication when calling STF. |
+| `STF_API_VERIFY_SSL` | Optional boolean flag to disable TLS verification for self-signed deployments. |
+| `STF_API_TIMEOUT_SECONDS` | Optional request timeout for STF API calls. |
+
+With these values in place, opening a device in STF displays a control panel beneath the embedded session. The panel includes actions to **Use device**, **Stop using**, **Install app**, **Screenshot**, and **Refresh status**, mirroring the common controls available in the native STF dashboard. The status refresh renders the latest STF device metadata within the page, while the install and screenshot actions proxy their respective STF API endpoints.
