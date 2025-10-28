@@ -16,7 +16,9 @@ const stfSessionContainer = document.getElementById('stf-session-container');
 const stfSessionTitle = document.getElementById('stf-session-title');
 const stfSessionSubtitle = document.getElementById('stf-session-subtitle');
 const stfSessionStatus = document.getElementById('stf-session-status');
-const stfSessionFrame = document.getElementById('stf-session-frame');
+const stfSessionActions = document.getElementById('stf-session-actions');
+const stfSessionMessage = document.getElementById('stf-session-message');
+const stfSessionReopenButton = document.getElementById('stf-session-reopen');
 const stfSessionCloseButton = document.getElementById('stf-session-close');
 const filterForm = document.getElementById('filters-form');
 const filterSearch = document.getElementById('filter-search');
@@ -670,70 +672,6 @@ async function handleOpenInStf(node, trigger) {
     }
 
     const stfConfig = getNodeStfConfig(node);
-    const responseJwtCookieName =
-      typeof response.jwt_cookie_name === 'string' && response.jwt_cookie_name.trim()
-        ? response.jwt_cookie_name.trim()
-        : '';
-    const responseJwtCookiePath =
-      typeof response.jwt_cookie_path === 'string' && response.jwt_cookie_path.trim()
-        ? response.jwt_cookie_path.trim()
-        : '';
-    const cookieNameCandidate =
-      responseJwtCookieName ||
-      (stfConfig &&
-        (stfConfig.jwt_cookie_name || stfConfig.jwtCookieName || stfConfig.cookie_name)) ||
-      '';
-    const cookiePathCandidate =
-      responseJwtCookiePath ||
-      (stfConfig &&
-        (stfConfig.jwt_cookie_path || stfConfig.jwtCookiePath || stfConfig.cookie_path)) ||
-      '';
-    const cookieDomainCandidate =
-      (stfConfig &&
-        (stfConfig.jwt_cookie_domain || stfConfig.jwtCookieDomain || stfConfig.cookie_domain)) ||
-      '';
-    const cookieSameSiteCandidate =
-      (stfConfig &&
-        (stfConfig.jwt_cookie_same_site ||
-          stfConfig.jwt_cookie_samesite ||
-          stfConfig.jwtCookieSameSite)) ||
-      '';
-    const cookieSecureCandidate =
-      (stfConfig &&
-        (stfConfig.jwt_cookie_secure || stfConfig.jwtCookieSecure || stfConfig.cookie_secure)) ||
-      null;
-    const fallbackCookiePath = node && typeof node.udid === 'string' && node.udid.trim()
-      ? `/control/${node.udid.trim()}`
-      : '';
-    const normalisedCookieName =
-      typeof cookieNameCandidate === 'string' && cookieNameCandidate.trim()
-        ? cookieNameCandidate.trim()
-        : 'jwt';
-    const normalisedCookiePathCandidate =
-      typeof cookiePathCandidate === 'string' && cookiePathCandidate.trim()
-        ? cookiePathCandidate.trim()
-        : '';
-    const normalisedCookiePath = normalisedCookiePathCandidate || fallbackCookiePath || '/';
-    const normalisedCookieDomain =
-      typeof cookieDomainCandidate === 'string' && cookieDomainCandidate.trim()
-        ? cookieDomainCandidate.trim()
-        : '';
-    const normalisedCookieSameSite =
-      typeof cookieSameSiteCandidate === 'string' && cookieSameSiteCandidate.trim()
-        ? cookieSameSiteCandidate.trim()
-        : '';
-    let normalisedCookieSecure = false;
-    if (typeof cookieSecureCandidate === 'boolean') {
-      normalisedCookieSecure = cookieSecureCandidate;
-    } else if (typeof cookieSecureCandidate === 'string') {
-      const trimmed = cookieSecureCandidate.trim().toLowerCase();
-      if (trimmed === 'true' || trimmed === '1' || trimmed === 'yes' || trimmed === 'y') {
-        normalisedCookieSecure = true;
-      }
-    } else if (typeof cookieSecureCandidate === 'number') {
-      normalisedCookieSecure = cookieSecureCandidate === 1;
-    }
-
     const session = {
       nodeId: node.id,
       launchUrl: finalUrl,
@@ -748,18 +686,15 @@ async function handleOpenInStf(node, trigger) {
         : typeof stfConfig?.token === 'string' && stfConfig.token.trim()
         ? stfConfig.token.trim()
         : null,
-      jwtCookieName: normalisedCookieName,
-      jwtCookiePath: normalisedCookiePath,
-      jwtCookieDomain: normalisedCookieDomain,
-      jwtCookieSameSite: normalisedCookieSameSite,
-      jwtCookieSecure: normalisedCookieSecure,
+      jwtQueryParam: typeof queryParam === 'string' && queryParam.trim() ? queryParam.trim() : '',
     };
 
     markNodeBusyLocally(node.id);
     setActiveStfSession(session);
+    launchStfSessionWindow(session);
     sessionActivated = true;
 
-    let message = 'Opening device in STF within this page.';
+    let message = 'Opening device in STF in a new browser tab.';
     const statusMessage = buildSessionStatusMessage(session);
     if (statusMessage) {
       message += ` ${statusMessage}`;
@@ -883,79 +818,62 @@ function buildSessionStatusMessage(session) {
   return '';
 }
 
-function buildStfSessionFrameDocument(session) {
-  if (!session || typeof session !== 'object') {
-    return '';
+function launchStfSessionWindow(session) {
+  if (typeof window === 'undefined') {
+    return;
   }
 
-  const launchUrl = typeof session.launchUrl === 'string' ? session.launchUrl.trim() : '';
-  if (!launchUrl) {
-    return '';
+  if (!session || typeof session !== 'object') {
+    return;
+  }
+
+  const rawLaunchUrl = typeof session.launchUrl === 'string' ? session.launchUrl.trim() : '';
+  if (!rawLaunchUrl) {
+    return;
   }
 
   const jwt = typeof session.jwt === 'string' ? session.jwt.trim() : '';
-  if (!jwt) {
-    return '';
-  }
+  const queryParam = typeof session.jwtQueryParam === 'string' ? session.jwtQueryParam.trim() : '';
+  const paramName = queryParam || 'jwt';
+  let targetUrl = rawLaunchUrl;
 
-  const cookieName =
-    typeof session.jwtCookieName === 'string' && session.jwtCookieName.trim()
-      ? session.jwtCookieName.trim()
-      : 'jwt';
-  const cookiePath =
-    typeof session.jwtCookiePath === 'string' && session.jwtCookiePath.trim()
-      ? session.jwtCookiePath.trim()
-      : '/';
-  const cookieDomain =
-    typeof session.jwtCookieDomain === 'string' ? session.jwtCookieDomain.trim() : '';
-  const cookieSameSite =
-    typeof session.jwtCookieSameSite === 'string' ? session.jwtCookieSameSite.trim() : '';
-  const cookieSecure = Boolean(session.jwtCookieSecure);
-
-  const targetUrl = launchUrl;
-
-  return `<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"><title>STF Auto Login</title></head>
-<body>
-<script>
-  (function() {
-    var jwt = ${JSON.stringify(jwt)};
-    var cookieName = ${JSON.stringify(cookieName)};
-    var cookiePath = ${JSON.stringify(cookiePath)};
-    var cookieDomain = ${JSON.stringify(cookieDomain)};
-    var cookieSameSite = ${JSON.stringify(cookieSameSite)};
-    var cookieSecure = ${JSON.stringify(Boolean(cookieSecure))};
-    var targetUrl = ${JSON.stringify(targetUrl)};
-    if (jwt && cookieName) {
-      try {
-        var cookieSegments = [];
-        cookieSegments.push(cookieName + '=' + encodeURIComponent(jwt));
-        if (cookiePath) {
-          cookieSegments.push('path=' + cookiePath);
-        }
-        if (cookieDomain) {
-          cookieSegments.push('domain=' + cookieDomain);
-        }
-        if (cookieSameSite) {
-          cookieSegments.push('SameSite=' + cookieSameSite);
-        }
-        if (cookieSecure) {
-          cookieSegments.push('Secure');
-        }
-        document.cookie = cookieSegments.join('; ');
-      } catch (cookieError) {
-        console.error('Failed to set STF auth cookie', cookieError);
+  if (jwt) {
+    try {
+      const parsedUrl = new URL(rawLaunchUrl);
+      if (!parsedUrl.searchParams.has(paramName)) {
+        parsedUrl.searchParams.set(paramName, jwt);
+      }
+      targetUrl = parsedUrl.toString();
+    } catch (parseError) {
+      const encodedParam = encodeURIComponent(paramName);
+      const hasParam =
+        rawLaunchUrl.includes(`?${encodedParam}=`) || rawLaunchUrl.includes(`&${encodedParam}=`);
+      if (!hasParam) {
+        const separator = rawLaunchUrl.includes('?') ? '&' : '?';
+        targetUrl = `${rawLaunchUrl}${separator}${encodedParam}=${encodeURIComponent(jwt)}`;
       }
     }
+  }
 
-    if (targetUrl) {
-      window.location.href = targetUrl;
+  let openedWindow = null;
+  try {
+    openedWindow = window.open(targetUrl, '_blank', 'noopener');
+  } catch (error) {
+    console.error('Failed to open STF session window', error);
+  }
+
+  if (!openedWindow) {
+    showToast('Allow pop-ups to open the STF session in a new tab.');
+    return;
+  }
+
+  try {
+    if (typeof openedWindow.focus === 'function') {
+      openedWindow.focus();
     }
-  })();
-</script>
-</body>
-</html>`;
+  } catch (focusError) {
+    console.warn('Unable to focus STF session window', focusError);
+  }
 }
 
 function updateStfSessionUi(session) {
@@ -986,18 +904,27 @@ function updateStfSessionUi(session) {
     stfSessionStatus.hidden = !statusMessage;
   }
 
-  if (stfSessionFrame) {
-    const frameDocument = buildStfSessionFrameDocument(session);
-    if (frameDocument) {
-      stfSessionFrame.removeAttribute('src');
-      stfSessionFrame.srcdoc = frameDocument;
+  const launchUrl = typeof session?.launchUrl === 'string' ? session.launchUrl.trim() : '';
+
+  if (stfSessionMessage) {
+    const messageParts = [];
+    if (launchUrl) {
+      messageParts.push('The STF session opened in a new browser tab.');
+      messageParts.push('If nothing appeared, allow pop-ups and use "Open STF session again".');
     } else {
-      stfSessionFrame.removeAttribute('srcdoc');
-      stfSessionFrame.src = session?.launchUrl || 'about:blank';
+      messageParts.push('An STF session is active.');
     }
+    stfSessionMessage.textContent = messageParts.join(' ');
+    stfSessionMessage.hidden = false;
   }
 
-  document.body.classList.add('stf-session-active');
+  if (stfSessionActions) {
+    stfSessionActions.hidden = !launchUrl;
+  }
+
+  if (stfSessionReopenButton) {
+    stfSessionReopenButton.disabled = !launchUrl;
+  }
 
   if (stfSessionCloseButton) {
     stfSessionCloseButton.disabled = false;
@@ -1029,12 +956,18 @@ function hideStfSessionUi() {
     stfSessionStatus.hidden = true;
   }
 
-  if (stfSessionFrame) {
-    stfSessionFrame.removeAttribute('srcdoc');
-    stfSessionFrame.src = 'about:blank';
+  if (stfSessionMessage) {
+    stfSessionMessage.textContent = '';
+    stfSessionMessage.hidden = true;
   }
 
-  document.body.classList.remove('stf-session-active');
+  if (stfSessionActions) {
+    stfSessionActions.hidden = true;
+  }
+
+  if (stfSessionReopenButton) {
+    stfSessionReopenButton.disabled = true;
+  }
 }
 
 function setActiveStfSession(session) {
@@ -2111,6 +2044,16 @@ if (stfSessionCloseButton) {
   stfSessionCloseButton.addEventListener('click', () => {
     stfSessionCloseButton.disabled = true;
     closeActiveStfSession();
+  });
+}
+
+if (stfSessionReopenButton) {
+  stfSessionReopenButton.addEventListener('click', () => {
+    if (!activeStfSession) {
+      showToast('No active STF session is available to open.');
+      return;
+    }
+    launchStfSessionWindow(activeStfSession);
   });
 }
 
