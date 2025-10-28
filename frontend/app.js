@@ -90,7 +90,6 @@ let isFiltersMenuOpen = false;
 let editingNodeId = '';
 let detailsModalNode = null;
 let activeStfSession = null;
-let stfSessionWindow = null;
 
 const REFRESH_INTERVAL = 15000;
 const PAGE_SIZE = 5;
@@ -856,15 +855,6 @@ function launchStfSessionWindow(session) {
     }
   }
 
-  const existingWindow = getOpenStfSessionWindow();
-  if (existingWindow) {
-    try {
-      existingWindow.close();
-    } catch (closeError) {
-      console.warn('Unable to close previous STF session window', closeError);
-    }
-  }
-
   let openedWindow = null;
   try {
     openedWindow = window.open(targetUrl, '_blank', 'noopener');
@@ -876,8 +866,6 @@ function launchStfSessionWindow(session) {
     showToast('Allow pop-ups to open the STF session in a new tab.');
     return;
   }
-
-  stfSessionWindow = openedWindow;
 
   try {
     if (typeof openedWindow.focus === 'function') {
@@ -989,7 +977,6 @@ function setActiveStfSession(session) {
     updateStfSessionUi(activeStfSession);
   } else {
     hideStfSessionUi();
-    closeStfSessionWindow();
   }
 
   refreshNodeViews();
@@ -1082,8 +1069,6 @@ async function closeActiveStfSession({ silent = false } = {}) {
     setActiveStfSession(session);
     return;
   }
-
-  closeStfSessionWindow();
 
   try {
     await loadNodes();
@@ -2101,37 +2086,4 @@ window.addEventListener('beforeunload', () => {
   if (activeStfSession?.nodeId) {
     sendStfReleaseKeepalive(activeStfSession.nodeId);
   }
-  closeStfSessionWindow();
 });
-
-function getOpenStfSessionWindow() {
-  if (!stfSessionWindow) {
-    return null;
-  }
-
-  try {
-    if (stfSessionWindow.closed) {
-      stfSessionWindow = null;
-      return null;
-    }
-  } catch (error) {
-    console.warn('Unable to verify STF session window state', error);
-  }
-
-  return stfSessionWindow;
-}
-
-function closeStfSessionWindow() {
-  const openWindow = getOpenStfSessionWindow();
-  if (!openWindow) {
-    return;
-  }
-
-  try {
-    openWindow.close();
-  } catch (error) {
-    console.warn('Unable to close STF session window', error);
-  } finally {
-    stfSessionWindow = null;
-  }
-}
