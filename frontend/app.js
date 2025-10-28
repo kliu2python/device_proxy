@@ -19,13 +19,6 @@ const stfSessionStatus = document.getElementById('stf-session-status');
 const stfSessionMessage = document.getElementById('stf-session-message');
 const stfSessionFrame = document.getElementById('stf-session-frame');
 const stfSessionCloseButton = document.getElementById('stf-session-close');
-const stfSessionActions = document.getElementById('stf-session-actions');
-const stfActionUseButton = document.getElementById('stf-action-use');
-const stfActionStopButton = document.getElementById('stf-action-stop');
-const stfActionInstallButton = document.getElementById('stf-action-install');
-const stfActionScreenshotButton = document.getElementById('stf-action-screenshot');
-const stfActionMonitorButton = document.getElementById('stf-action-monitor');
-const stfMonitorOutput = document.getElementById('stf-monitor-output');
 const filterForm = document.getElementById('filters-form');
 const filterSearch = document.getElementById('filter-search');
 const filterPlatform = document.getElementById('filter-platform');
@@ -166,47 +159,6 @@ function normaliseText(value) {
     return '';
   }
   return value.trim().toLowerCase();
-}
-
-function getErrorMessage(error, fallback = 'Unexpected error occurred.') {
-  if (!error) {
-    return fallback;
-  }
-
-  if (typeof error === 'string') {
-    return error.trim() || fallback;
-  }
-
-  if (error && typeof error === 'object') {
-    if (typeof error.message === 'string' && error.message.trim()) {
-      return error.message.trim();
-    }
-
-    if (typeof error.detail === 'string' && error.detail.trim()) {
-      return error.detail.trim();
-    }
-
-    if (typeof error.error === 'string' && error.error.trim()) {
-      return error.error.trim();
-    }
-  }
-
-  return fallback;
-}
-
-function deriveStfSuccessMessage(result, fallback) {
-  if (result && typeof result === 'object') {
-    for (const key of ['message', 'detail', 'status']) {
-      const value = result[key];
-      if (typeof value === 'string') {
-        const trimmed = value.trim();
-        if (trimmed) {
-          return trimmed;
-        }
-      }
-    }
-  }
-  return fallback;
 }
 
 function getNodeTags(node) {
@@ -829,28 +781,6 @@ async function fetchJson(endpoint, options) {
   return response.json();
 }
 
-async function fetchOk(endpoint, options) {
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, options);
-  if (!response.ok) {
-    let message = `Request failed: ${response.status}`;
-    let payload = null;
-    try {
-      payload = await response.json();
-      if (payload && typeof payload === 'object' && payload.detail) {
-        message = payload.detail;
-      }
-    } catch (error) {
-      // Ignore JSON parsing errors for unsuccessful responses
-    }
-    const error = new Error(message);
-    error.status = response.status;
-    error.payload = payload;
-    throw error;
-  }
-
-  return response;
-}
-
 function formatEndpoint(node) {
   if (!node.host || !node.port) {
     return '—';
@@ -926,123 +856,6 @@ function clearStfSessionFrameSource() {
   }
 }
 
-function openImageInNewTab(imageData) {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  if (typeof imageData !== 'string') {
-    return false;
-  }
-
-  const trimmed = imageData.trim();
-  if (!trimmed) {
-    return false;
-  }
-
-  const source = trimmed.startsWith('data:')
-    ? trimmed
-    : `data:image/png;base64,${trimmed}`;
-
-  try {
-    const viewer = window.open('', '_blank');
-    if (!viewer) {
-      return false;
-    }
-    viewer.document.write(
-      `<title>STF screenshot</title><img src="${source}" alt="STF screenshot" style="max-width:100%;height:auto;" />`
-    );
-    viewer.document.close();
-    return true;
-  } catch (error) {
-    return false;
-  }
-}
-
-function hideStfMonitorOutput() {
-  if (!stfMonitorOutput) {
-    return;
-  }
-  stfMonitorOutput.textContent = '';
-  stfMonitorOutput.hidden = true;
-}
-
-function renderStfMonitorOutput(data) {
-  if (!stfMonitorOutput) {
-    return;
-  }
-
-  if (data === null || data === undefined) {
-    hideStfMonitorOutput();
-    return;
-  }
-
-  try {
-    stfMonitorOutput.textContent = JSON.stringify(data, null, 2);
-  } catch (error) {
-    stfMonitorOutput.textContent = String(data);
-  }
-  stfMonitorOutput.hidden = false;
-}
-
-function setStfActionsEnabled(enabled) {
-  if (stfSessionActions) {
-    stfSessionActions.hidden = !enabled;
-  }
-
-  const buttons = [
-    stfActionUseButton,
-    stfActionStopButton,
-    stfActionInstallButton,
-    stfActionScreenshotButton,
-    stfActionMonitorButton,
-  ];
-
-  for (const button of buttons) {
-    if (button) {
-      button.disabled = !enabled;
-    }
-  }
-
-  if (!enabled) {
-    hideStfMonitorOutput();
-  }
-}
-
-function ensureActiveStfSession() {
-  if (!activeStfSession || !activeStfSession.nodeId) {
-    showToast('Open an STF session before using device controls.');
-    return null;
-  }
-
-  return activeStfSession;
-}
-
-async function withButtonBusyState(button, pendingLabel, callback) {
-  if (!button || typeof callback !== 'function') {
-    return callback();
-  }
-
-  const originalDisabled = button.disabled;
-  const originalLabel = button.textContent;
-
-  button.disabled = true;
-  if (typeof pendingLabel === 'string' && pendingLabel) {
-    button.textContent = pendingLabel;
-  }
-
-  try {
-    return await callback();
-  } finally {
-    if (button.isConnected) {
-      button.disabled = originalDisabled;
-      if (typeof pendingLabel === 'string' && pendingLabel) {
-        button.textContent = originalLabel;
-      }
-    }
-  }
-}
-
 function updateStfSessionUi(session) {
   if (!stfSessionContainer) {
     return;
@@ -1054,8 +867,6 @@ function updateStfSessionUi(session) {
   } else {
     delete stfSessionContainer.dataset.nodeId;
   }
-
-  setStfActionsEnabled(true);
 
   if (stfSessionTitle) {
     stfSessionTitle.textContent = session?.displayName || 'Active STF session';
@@ -1133,7 +944,6 @@ function hideStfSessionUi() {
   }
 
   clearStfSessionFrameSource();
-  setStfActionsEnabled(false);
 }
 
 function sendStopUsingPostMessage(session) {
@@ -1231,7 +1041,6 @@ function setActiveStfSession(session) {
     updateStfSessionUi(activeStfSession);
   } else {
     hideStfSessionUi();
-    hideStfMonitorOutput();
   }
 
   refreshNodeViews();
@@ -1339,238 +1148,6 @@ async function closeActiveStfSession({ silent = false } = {}) {
     await loadNodes();
   } catch (refreshError) {
     console.warn('Failed to refresh nodes after closing STF session', refreshError);
-  }
-}
-
-async function handleStfUseAction(event) {
-  if (event) {
-    event.preventDefault();
-  }
-
-  const session = ensureActiveStfSession();
-  if (!session) {
-    return;
-  }
-
-  const encodedId = encodeURIComponent(session.nodeId);
-
-  try {
-    const result = await withButtonBusyState(stfActionUseButton, 'Starting…', () =>
-      fetchJson(`/nodes/${encodedId}/stf/use`, fetchOptions('POST'))
-    );
-
-    if (result && typeof result === 'object') {
-      const monitorData = result.device ?? result.data ?? result;
-      renderStfMonitorOutput(monitorData);
-      showToast(deriveStfSuccessMessage(result, 'Device use request sent to STF.'));
-    } else {
-      renderStfMonitorOutput(null);
-      showToast('Device use request sent to STF.');
-    }
-  } catch (error) {
-    showToast(getErrorMessage(error, 'Failed to start using the device.'));
-  }
-}
-
-async function handleStfStopAction(event) {
-  if (event) {
-    event.preventDefault();
-  }
-
-  const session = ensureActiveStfSession();
-  if (!session) {
-    return;
-  }
-
-  const encodedId = encodeURIComponent(session.nodeId);
-
-  try {
-    const result = await withButtonBusyState(stfActionStopButton, 'Stopping…', () =>
-      fetchJson(`/nodes/${encodedId}/stf/use`, fetchOptions('DELETE'))
-    );
-
-    if (result && typeof result === 'object') {
-      const monitorData = result.device ?? result.data ?? null;
-      if (monitorData) {
-        renderStfMonitorOutput(monitorData);
-      } else {
-        renderStfMonitorOutput(null);
-      }
-      showToast(deriveStfSuccessMessage(result, 'Stop request sent to STF.'));
-    } else {
-      renderStfMonitorOutput(null);
-      showToast('Stop request sent to STF.');
-    }
-  } catch (error) {
-    showToast(getErrorMessage(error, 'Failed to stop using the device.'));
-  }
-}
-
-async function handleStfInstallAction(event) {
-  if (event) {
-    event.preventDefault();
-  }
-
-  if (typeof window === 'undefined') {
-    showToast('Install action is not supported in this environment.');
-    return;
-  }
-
-  const session = ensureActiveStfSession();
-  if (!session) {
-    return;
-  }
-
-  const appUrl = window.prompt('Enter the URL of the application package to install via STF:');
-  if (appUrl === null) {
-    return;
-  }
-
-  const trimmedUrl = typeof appUrl === 'string' ? appUrl.trim() : '';
-  if (!trimmedUrl) {
-    showToast('Install cancelled. Provide an application URL to continue.');
-    return;
-  }
-
-  const encodedId = encodeURIComponent(session.nodeId);
-  const payload = { app_url: trimmedUrl };
-
-  try {
-    const result = await withButtonBusyState(stfActionInstallButton, 'Installing…', () =>
-      fetchJson(`/nodes/${encodedId}/stf/install`, fetchOptions('POST', payload))
-    );
-
-    if (result && typeof result === 'object') {
-      const monitorData = result.device ?? result.data ?? result;
-      renderStfMonitorOutput(monitorData);
-      showToast(deriveStfSuccessMessage(result, 'Install request submitted to STF.'));
-    } else {
-      renderStfMonitorOutput(null);
-      showToast('Install request submitted to STF.');
-    }
-  } catch (error) {
-    showToast(getErrorMessage(error, 'Failed to request installation.'));
-  }
-}
-
-async function handleStfScreenshotAction(event) {
-  if (event) {
-    event.preventDefault();
-  }
-
-  const session = ensureActiveStfSession();
-  if (!session) {
-    return;
-  }
-
-  const encodedId = encodeURIComponent(session.nodeId);
-
-  try {
-    const response = await withButtonBusyState(stfActionScreenshotButton, 'Capturing…', () =>
-      fetchOk(`/nodes/${encodedId}/stf/screenshot`, fetchOptions('POST'))
-    );
-
-    const contentType = response.headers.get('Content-Type') || '';
-
-    if (contentType.includes('application/json')) {
-      const data = await response.json();
-      if (data && typeof data === 'object') {
-        const monitorData = data.device ?? data.data ?? null;
-        if (monitorData) {
-          renderStfMonitorOutput(monitorData);
-        }
-
-        const imageData = typeof data.image === 'string' && data.image.trim()
-          ? data.image.trim()
-          : typeof data.screenshot === 'string' && data.screenshot.trim()
-          ? data.screenshot.trim()
-          : '';
-
-        if (imageData) {
-          const opened = openImageInNewTab(imageData);
-          if (!opened) {
-            try {
-              const link = document.createElement('a');
-              link.href = imageData.startsWith('data:')
-                ? imageData
-                : `data:image/png;base64,${imageData}`;
-              link.download = `stf-screenshot-${Date.now()}.png`;
-              document.body.appendChild(link);
-              link.click();
-              link.remove();
-            } catch (downloadError) {
-              console.debug('Unable to download STF screenshot automatically', downloadError);
-            }
-          }
-        }
-
-        showToast(deriveStfSuccessMessage(data, 'Screenshot captured from STF.'));
-      } else {
-        showToast('Screenshot captured from STF.');
-      }
-    } else {
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      let opened = false;
-      try {
-        const viewer = window.open(objectUrl, '_blank');
-        if (viewer) {
-          opened = true;
-        }
-      } catch (openError) {
-        opened = false;
-      }
-
-      if (!opened) {
-        try {
-          const link = document.createElement('a');
-          link.href = objectUrl;
-          link.download = `stf-screenshot-${Date.now()}.png`;
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-        } catch (downloadError) {
-          console.debug('Unable to trigger STF screenshot download', downloadError);
-        }
-      }
-
-      window.setTimeout(() => {
-        URL.revokeObjectURL(objectUrl);
-      }, 60_000);
-
-      showToast('Screenshot captured from STF.');
-    }
-  } catch (error) {
-    showToast(getErrorMessage(error, 'Failed to capture screenshot.'));
-  }
-}
-
-async function handleStfMonitorAction(event) {
-  if (event) {
-    event.preventDefault();
-  }
-
-  const session = ensureActiveStfSession();
-  if (!session) {
-    return;
-  }
-
-  const encodedId = encodeURIComponent(session.nodeId);
-
-  try {
-    const result = await withButtonBusyState(stfActionMonitorButton, 'Refreshing…', () =>
-      fetchJson(`/nodes/${encodedId}/stf/device`, fetchOptions('GET'))
-    );
-
-    if (result && typeof result === 'object') {
-      renderStfMonitorOutput(result);
-      showToast(deriveStfSuccessMessage(result, 'Device status updated.'));
-    } else {
-      renderStfMonitorOutput(null);
-      showToast('Device status refreshed.');
-    }
-  } catch (error) {
-    showToast(getErrorMessage(error, 'Failed to retrieve STF device status.'));
   }
 }
 
@@ -2542,26 +2119,6 @@ if (stfSessionCloseButton) {
     stfSessionCloseButton.disabled = true;
     closeActiveStfSession();
   });
-}
-
-if (stfActionUseButton) {
-  stfActionUseButton.addEventListener('click', handleStfUseAction);
-}
-
-if (stfActionStopButton) {
-  stfActionStopButton.addEventListener('click', handleStfStopAction);
-}
-
-if (stfActionInstallButton) {
-  stfActionInstallButton.addEventListener('click', handleStfInstallAction);
-}
-
-if (stfActionScreenshotButton) {
-  stfActionScreenshotButton.addEventListener('click', handleStfScreenshotAction);
-}
-
-if (stfActionMonitorButton) {
-  stfActionMonitorButton.addEventListener('click', handleStfMonitorAction);
 }
 
 if (adminToolsTrigger) {
