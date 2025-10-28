@@ -13,7 +13,7 @@ Set the following variables for the backend service before starting it:
 | Variable | Description |
 | --- | --- |
 | `STF_BASE_URL` | Required. The base URL of your STF deployment (for example `https://stf.example.com`). |
-| `STF_CONTROL_URL_TEMPLATE` | Optional. Path or URL used to open a device. Defaults to `/#!/control/{udid}` when omitted. |
+| `STF_CONTROL_URL_TEMPLATE` | Optional. Path or URL used to open a device. Defaults to `/#!/control/{serial}` when omitted. |
 | `STF_JWT` and `STF_JWT_QUERY_PARAM` | Optional. Provide a static token that is appended to the launch URL. |
 | `STF_SESSION_TTL_SECONDS` | Optional. Default reservation length in seconds. |
 | `STF_MAX_SESSION_TTL_SECONDS` | Optional. Upper bound for reservations. |
@@ -32,13 +32,15 @@ If you prefer to configure STF only for specific devices, include an `stf` objec
   },
   "stf": {
     "base_url": "https://stf.example.com",
-    "control_path_template": "/#!/control/{udid}",
+    "control_path_template": "/#!/control/{serial}",
     "enabled": true
   }
 }
 ```
 
 The updated CSV template that you can download from `/nodes/template` now includes this example. Ensure that the node definition also includes a UDID; otherwise STF cannot be enabled for that device.
+
+The placeholders `{serial}`, `{device_serial}`, `{stf_serial}`, `{udid}`, `{id}`, and `{node_id}` are all supported inside the control template. The serial-related tokens resolve to the STF device serial, while `{udid}` falls back to that serial when the node does not declare a dedicated UDID.
 
 ### Additional requirements
 
