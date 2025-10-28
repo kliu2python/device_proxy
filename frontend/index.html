@@ -161,14 +161,13 @@
           Close session
         </button>
       </div>
-      <div class="stf-session__body">
-        <p id="stf-session-message" class="stf-session__message"></p>
-        <div id="stf-session-actions" class="stf-session__actions">
-          <button type="button" id="stf-session-reopen" class="link-button">
-            Open STF session again
-          </button>
-        </div>
-      </div>
+      <iframe
+        id="stf-session-frame"
+        class="stf-session__frame"
+        title="STF session frame"
+        allow="clipboard-read; clipboard-write; fullscreen"
+        referrerpolicy="no-referrer"
+      ></iframe>
     </div>
 
     <div
