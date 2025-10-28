@@ -571,38 +571,16 @@ def _build_stf_control_url(node: Dict, stf_config: Dict) -> str:
     template = _resolve_stf_control_template(stf_config)
 
     if template is None:
-        template = "/#!/control/{serial}"
+        template = "/#!/control/{udid}"
 
-    raw_template = template
-
-    serial = _resolve_stf_device_serial(node, stf_config)
-    udid = node.get("udid") or stf_config.get("udid") or serial
-
-    if "{udid" in raw_template and not node.get("udid") and not stf_config.get("udid"):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "STF control URL template requires a UDID but none is configured for this node."
-            ),
-        )
-
-    try:
-        template = raw_template.format(
-            serial=serial,
-            device_serial=serial,
-            stf_serial=serial,
-            udid=udid,
-            node_id=node.get("id"),
-            id=node.get("id"),
-        )
-    except KeyError as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "STF control URL template references unknown placeholder "
-                f"'{exc.args[0]}'"
-            ),
-        ) from exc
+    udid = node.get("udid") or stf_config.get("udid")
+    if "{udid}" in template:
+        if not udid:
+            raise HTTPException(
+                status_code=400,
+                detail="STF control URL template requires a UDID but none is configured for this node.",
+            )
+        template = template.format(udid=udid)
 
     if template.startswith("http://") or template.startswith("https://"):
         return template
