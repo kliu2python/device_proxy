@@ -172,6 +172,37 @@
     </div>
 
     <div
+      id="stream-viewer"
+      class="stream-viewer"
+      role="dialog"
+      aria-modal="true"
+      aria-hidden="true"
+      aria-labelledby="stream-viewer-title"
+      hidden
+    >
+      <div class="stream-viewer__backdrop" data-stream-dismiss></div>
+      <div class="stream-viewer__content" role="document">
+        <div class="stream-viewer__header">
+          <div class="stream-viewer__meta">
+            <h2 id="stream-viewer-title" class="stream-viewer__title">Device stream</h2>
+            <p id="stream-viewer-subtitle" class="stream-viewer__subtitle" hidden></p>
+          </div>
+          <button type="button" class="button button--secondary" id="stream-viewer-close">
+            Close
+          </button>
+        </div>
+        <iframe
+          id="stream-viewer-frame"
+          class="stream-viewer__frame"
+          title="Device stream frame"
+          allow="autoplay; fullscreen"
+          referrerpolicy="no-referrer"
+          loading="lazy"
+        ></iframe>
+      </div>
+    </div>
+
+    <div
       id="admin-modal"
       class="modal"
       role="dialog"
@@ -341,6 +372,9 @@
           </button>
         </div>
         <div id="details-modal-actions" class="details-modal__actions" hidden>
+          <button type="button" class="button" id="details-open-stream">
+            View stream
+          </button>
           <button type="button" class="button" id="details-open-stf">
             Open in STF
           </button>

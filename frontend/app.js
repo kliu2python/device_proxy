@@ -11,6 +11,7 @@ const summaryUpdated = document.getElementById('summary-updated');
 const detailsModal = document.getElementById('details-modal');
 const detailsBody = document.getElementById('details-modal-body');
 const detailsActions = document.getElementById('details-modal-actions');
+const detailsOpenStreamButton = document.getElementById('details-open-stream');
 const detailsOpenStfButton = document.getElementById('details-open-stf');
 const stfSessionContainer = document.getElementById('stf-session-container');
 const stfSessionTitle = document.getElementById('stf-session-title');
@@ -19,6 +20,14 @@ const stfSessionStatus = document.getElementById('stf-session-status');
 const stfSessionMessage = document.getElementById('stf-session-message');
 const stfSessionFrame = document.getElementById('stf-session-frame');
 const stfSessionCloseButton = document.getElementById('stf-session-close');
+const streamViewer = document.getElementById('stream-viewer');
+const streamViewerFrame = document.getElementById('stream-viewer-frame');
+const streamViewerTitle = document.getElementById('stream-viewer-title');
+const streamViewerSubtitle = document.getElementById('stream-viewer-subtitle');
+const streamViewerCloseButton = document.getElementById('stream-viewer-close');
+const streamViewerDismissTargets = streamViewer
+  ? Array.from(streamViewer.querySelectorAll('[data-stream-dismiss]'))
+  : [];
 const filterForm = document.getElementById('filters-form');
 const filterSearch = document.getElementById('filter-search');
 const filterPlatform = document.getElementById('filter-platform');
@@ -89,12 +98,15 @@ let isFiltersMenuOpen = false;
 let editingNodeId = '';
 let detailsModalNode = null;
 let activeStfSession = null;
+let activeStreamViewer = null;
+let lastStreamTrigger = null;
 
 const REFRESH_INTERVAL = 15000;
 const PAGE_SIZE = 5;
 
 const STATUS_PRIORITY = ['busy', 'offline', 'online'];
 const DEFAULT_API_PORT = 8090;
+const STREAM_BASE_URL = 'http://10.160.13.110:8099/stream';
 
 function deriveApiBaseUrl() {
   const overrides = [];
@@ -227,6 +239,253 @@ function nodeSupportsStf(node) {
   }
 
   return true;
+}
+
+function deriveStreamPlatformSegment(node) {
+  if (!node || typeof node !== 'object') {
+    return null;
+  }
+
+  const tags = Array.from(getNodeTags(node));
+
+  const iosMatch = tags.find((tag) =>
+    tag.includes('ios') || tag.includes('iphone') || tag.includes('ipad')
+  );
+  if (iosMatch) {
+    return 'ios';
+  }
+
+  const androidMatch = tags.find((tag) => tag.includes('android'));
+  if (androidMatch) {
+    return 'android';
+  }
+
+  const platform = normaliseText(node.platform || '');
+  if (platform.includes('ios') || platform.includes('iphone') || platform.includes('ipad')) {
+    return 'ios';
+  }
+  if (platform.includes('android')) {
+    return 'android';
+  }
+
+  const type = normaliseText(node.type || '');
+  if (type.includes('ios') || type.includes('iphone') || type.includes('ipad')) {
+    return 'ios';
+  }
+  if (type.includes('android')) {
+    return 'android';
+  }
+
+  return null;
+}
+
+function deriveStreamUrl(node) {
+  if (!node || typeof node !== 'object') {
+    return null;
+  }
+
+  const udid = typeof node.udid === 'string' ? node.udid.trim() : '';
+  if (!udid) {
+    return null;
+  }
+
+  const platformSegment = deriveStreamPlatformSegment(node);
+  if (!platformSegment) {
+    return null;
+  }
+
+  return `${STREAM_BASE_URL}/${platformSegment}/${encodeURIComponent(udid)}`;
+}
+
+function resolveStreamViewerNode(state) {
+  if (!state) {
+    return null;
+  }
+
+  if (state.nodeId) {
+    const match = allNodes.find((candidate) => candidate && candidate.id === state.nodeId);
+    if (match) {
+      return match;
+    }
+  }
+
+  return state.nodeSnapshot || null;
+}
+
+function updateStreamViewerMetadata(node) {
+  if (streamViewerTitle) {
+    const deviceName = typeof node?.device_name === 'string' ? node.device_name.trim() : '';
+    const nodeId = typeof node?.id === 'string' ? node.id.trim() : '';
+    const title = deviceName || nodeId || 'Device stream';
+    streamViewerTitle.textContent = title;
+  }
+
+  if (!streamViewerSubtitle) {
+    return;
+  }
+
+  const parts = [];
+  if (node) {
+    const nodeId = typeof node.id === 'string' ? node.id.trim() : '';
+    const deviceName = typeof node.device_name === 'string' ? node.device_name.trim() : '';
+    const platform = typeof node.platform === 'string' ? node.platform.trim() : '';
+    const udid = typeof node.udid === 'string' ? node.udid.trim() : '';
+
+    if (nodeId) {
+      if (deviceName && deviceName !== nodeId) {
+        parts.push(nodeId);
+      } else {
+        parts.push(`Node: ${nodeId}`);
+      }
+    }
+
+    if (platform) {
+      parts.push(platform);
+    }
+
+    if (udid) {
+      parts.push(`UDID: ${udid}`);
+    }
+  }
+
+  if (parts.length > 0) {
+    streamViewerSubtitle.textContent = parts.join(' • ');
+    streamViewerSubtitle.hidden = false;
+  } else {
+    streamViewerSubtitle.textContent = '';
+    streamViewerSubtitle.hidden = true;
+  }
+}
+
+function updateStreamViewerUi(state) {
+  if (!streamViewer) {
+    return;
+  }
+
+  const node = resolveStreamViewerNode(state);
+  updateStreamViewerMetadata(node);
+
+  if (streamViewerFrame) {
+    const targetSrc = state?.url || '';
+    if (targetSrc) {
+      const currentSrc = streamViewerFrame.getAttribute('src') || '';
+      if (currentSrc !== targetSrc) {
+        streamViewerFrame.setAttribute('src', targetSrc);
+      }
+    }
+  }
+
+  streamViewer.hidden = false;
+  streamViewer.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('stream-viewer-active');
+}
+
+function hideStreamViewerUi() {
+  if (!streamViewer) {
+    return;
+  }
+
+  streamViewer.hidden = true;
+  streamViewer.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('stream-viewer-active');
+
+  if (streamViewerFrame) {
+    streamViewerFrame.setAttribute('src', 'about:blank');
+  }
+
+  if (streamViewerSubtitle) {
+    streamViewerSubtitle.textContent = '';
+    streamViewerSubtitle.hidden = true;
+  }
+
+  if (streamViewerTitle) {
+    streamViewerTitle.textContent = 'Device stream';
+  }
+}
+
+function setActiveStreamViewer(viewerState) {
+  const nextState = viewerState
+    ? {
+        nodeId: viewerState.nodeId || '',
+        url: viewerState.url || '',
+        nodeSnapshot: viewerState.nodeSnapshot || null,
+      }
+    : null;
+
+  activeStreamViewer = nextState;
+
+  if (activeStreamViewer && activeStreamViewer.url) {
+    updateStreamViewerUi(activeStreamViewer);
+  } else {
+    hideStreamViewerUi();
+  }
+
+  refreshNodeViews();
+
+  if (detailsModalNode) {
+    const updatedNode = allNodes.find((candidate) => candidate && candidate.id === detailsModalNode.id);
+    if (updatedNode) {
+      detailsModalNode = updatedNode;
+      if (detailsModal && detailsModal.classList.contains('visible') && detailsBody) {
+        detailsBody.textContent = serializeNode(updatedNode);
+      }
+      updateDetailsModalActions(updatedNode);
+    } else {
+      detailsModalNode = null;
+      updateDetailsModalActions(null);
+    }
+  } else {
+    updateDetailsModalActions(null);
+  }
+}
+
+function openStreamViewer(node, triggerButton) {
+  if (!node || typeof node !== 'object') {
+    showToast('Select a node before opening the stream.');
+    return;
+  }
+
+  const streamUrl = deriveStreamUrl(node);
+  if (!streamUrl) {
+    showToast('Stream is not available for this device.');
+    return;
+  }
+
+  if (deriveStatus(node) !== 'online') {
+    showToast('Stream is only available when the node is online.');
+    return;
+  }
+
+  lastStreamTrigger = triggerButton || null;
+
+  setActiveStreamViewer({
+    nodeId: node.id || '',
+    url: streamUrl,
+    nodeSnapshot: node,
+  });
+
+  if (streamViewerCloseButton) {
+    streamViewerCloseButton.focus();
+  }
+}
+
+function closeStreamViewer({ restoreFocus = true, reason } = {}) {
+  const hadActiveViewer = Boolean(activeStreamViewer);
+
+  setActiveStreamViewer(null);
+
+  if (restoreFocus && lastStreamTrigger && typeof lastStreamTrigger.focus === 'function') {
+    if (lastStreamTrigger.isConnected) {
+      lastStreamTrigger.focus();
+    }
+  }
+  lastStreamTrigger = null;
+
+  if (reason) {
+    showToast(reason);
+  } else if (!hadActiveViewer) {
+    hideStreamViewerUi();
+  }
 }
 
 function getStoredAdminToken() {
@@ -1645,20 +1904,55 @@ function serializeNode(node) {
 }
 
 function updateDetailsModalActions(node) {
-  if (!detailsActions || !detailsOpenStfButton) {
+  if (!detailsActions) {
     return;
   }
 
-  if (!node || typeof node !== 'object') {
-    detailsActions.hidden = true;
+  const hasNode = Boolean(node && typeof node === 'object');
+  const status = hasNode ? deriveStatus(node) : null;
+  const streamUrl = hasNode ? deriveStreamUrl(node) : null;
+  const isStreamActiveForNode = hasNode && activeStreamViewer?.nodeId === node.id;
+
+  detailsActions.hidden = !hasNode;
+
+  if (detailsOpenStreamButton) {
+    detailsOpenStreamButton.textContent = isStreamActiveForNode ? 'Stream open' : 'View stream';
+
+    if (!hasNode) {
+      detailsOpenStreamButton.disabled = true;
+      detailsOpenStreamButton.setAttribute('aria-disabled', 'true');
+      detailsOpenStreamButton.title = 'Select a node to open the stream.';
+    } else if (!streamUrl) {
+      detailsOpenStreamButton.disabled = true;
+      detailsOpenStreamButton.setAttribute('aria-disabled', 'true');
+      detailsOpenStreamButton.title = 'Stream is not available for this node.';
+    } else if (isStreamActiveForNode) {
+      detailsOpenStreamButton.disabled = true;
+      detailsOpenStreamButton.setAttribute('aria-disabled', 'true');
+      detailsOpenStreamButton.title = 'The stream for this device is already open.';
+    } else if (status !== 'online') {
+      detailsOpenStreamButton.disabled = true;
+      detailsOpenStreamButton.setAttribute('aria-disabled', 'true');
+      detailsOpenStreamButton.title = 'Streams are only available when the node is online.';
+    } else {
+      detailsOpenStreamButton.disabled = false;
+      detailsOpenStreamButton.removeAttribute('aria-disabled');
+      detailsOpenStreamButton.title = 'View a live stream of this device within this page.';
+    }
+  }
+
+  if (!detailsOpenStfButton) {
+    return;
+  }
+
+  detailsOpenStfButton.textContent = 'Open STF session';
+
+  if (!hasNode) {
     detailsOpenStfButton.disabled = true;
     detailsOpenStfButton.setAttribute('aria-disabled', 'true');
     detailsOpenStfButton.title = 'Select a node to open STF.';
     return;
   }
-
-  detailsActions.hidden = false;
-  detailsOpenStfButton.textContent = 'Open STF session';
 
   const supportsStf = nodeSupportsStf(node);
   if (!supportsStf) {
@@ -1686,7 +1980,6 @@ function updateDetailsModalActions(node) {
     return;
   }
 
-  const status = deriveStatus(node);
   if (status === 'online') {
     detailsOpenStfButton.disabled = false;
     detailsOpenStfButton.removeAttribute('aria-disabled');
@@ -1777,6 +2070,64 @@ if (detailsModal) {
     if (event.key === 'Escape' && detailsModal.classList.contains('visible')) {
       closeDetailsModal();
     }
+  });
+}
+
+if (streamViewer) {
+  streamViewerDismissTargets.forEach((target) => {
+    target.addEventListener('click', () => closeStreamViewer());
+  });
+
+  if (streamViewerCloseButton) {
+    streamViewerCloseButton.addEventListener('click', () => closeStreamViewer());
+  }
+
+  streamViewer.addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab' || streamViewer.hidden) {
+      return;
+    }
+
+    const focusableElements = Array.from(streamViewer.querySelectorAll(FOCUSABLE_SELECTOR)).filter(
+      (element) =>
+        !element.hasAttribute('disabled') &&
+        (element.offsetParent !== null || element.getClientRects().length > 0)
+    );
+
+    if (focusableElements.length === 0) {
+      event.preventDefault();
+      return;
+    }
+
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+    const { activeElement } = document;
+
+    if (event.shiftKey) {
+      if (activeElement === firstElement || !streamViewer.contains(activeElement)) {
+        event.preventDefault();
+        lastElement.focus();
+      }
+    } else if (activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !streamViewer.hidden) {
+      closeStreamViewer();
+    }
+  });
+}
+
+if (detailsOpenStreamButton) {
+  detailsOpenStreamButton.addEventListener('click', () => {
+    if (!detailsModalNode) {
+      showToast('Select a node before opening the stream.');
+      return;
+    }
+
+    openStreamViewer(detailsModalNode, detailsOpenStreamButton);
   });
 }
 
@@ -1878,6 +2229,7 @@ function renderRows(nodes) {
 
     const actions = [
       `<button class="action-button" data-show="${node.id}">Show details</button>`,
+      `<button class="action-button" data-open-stream="${node.id}">View stream</button>`,
       `<button class="action-button" data-open-stf="${node.id}">Open STF session</button>`,
     ];
 
@@ -1910,6 +2262,34 @@ function renderRows(nodes) {
       trigger.title = 'Session details are only available when the node is online.';
     } else {
       trigger.addEventListener('click', () => showNodeDetails(node, trigger));
+    }
+
+    const openStreamButton = tr.querySelector('button[data-open-stream]');
+    if (openStreamButton) {
+      openStreamButton.textContent = 'View stream';
+
+      const streamUrl = deriveStreamUrl(node);
+      const isStreamActiveForNode = activeStreamViewer?.nodeId === node.id;
+
+      if (!streamUrl) {
+        openStreamButton.disabled = true;
+        openStreamButton.setAttribute('aria-disabled', 'true');
+        openStreamButton.title = 'Stream is not available for this node.';
+      } else if (isStreamActiveForNode) {
+        openStreamButton.disabled = true;
+        openStreamButton.setAttribute('aria-disabled', 'true');
+        openStreamButton.textContent = 'Stream open';
+        openStreamButton.title = 'The stream for this device is already open.';
+      } else if (status !== 'online') {
+        openStreamButton.disabled = true;
+        openStreamButton.setAttribute('aria-disabled', 'true');
+        openStreamButton.title = 'Streams are only available when the node is online.';
+      } else {
+        openStreamButton.disabled = false;
+        openStreamButton.removeAttribute('aria-disabled');
+        openStreamButton.title = 'View a live stream of this device within this page.';
+        openStreamButton.addEventListener('click', () => openStreamViewer(node, openStreamButton));
+      }
     }
 
     const openStfButton = tr.querySelector('button[data-open-stf]');
@@ -2017,6 +2397,30 @@ async function loadNodes({ userInitiated = false } = {}) {
           : 'Active STF session ended because the device is available again.';
         setActiveStfSession(null);
         showToast(endedMessage);
+      }
+    }
+
+    if (activeStreamViewer) {
+      const resolvedNode = resolveStreamViewerNode(activeStreamViewer);
+      const streamUrl = resolvedNode ? deriveStreamUrl(resolvedNode) : null;
+      const streamStatus = resolvedNode ? deriveStatus(resolvedNode) : null;
+
+      if (!resolvedNode || !streamUrl || streamStatus !== 'online') {
+        const endedMessage = !resolvedNode
+          ? 'Device stream closed because the node is no longer available.'
+          : 'Device stream closed because the device is no longer online.';
+        closeStreamViewer({ restoreFocus: false, reason: endedMessage });
+      } else {
+        activeStreamViewer.url = streamUrl;
+        activeStreamViewer.nodeSnapshot = resolvedNode;
+        updateStreamViewerMetadata(resolvedNode);
+
+        if (streamViewerFrame) {
+          const currentSrc = streamViewerFrame.getAttribute('src') || '';
+          if (currentSrc !== streamUrl) {
+            streamViewerFrame.setAttribute('src', streamUrl);
+          }
+        }
       }
     }
 
