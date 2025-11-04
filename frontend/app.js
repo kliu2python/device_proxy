@@ -74,6 +74,18 @@ const detailsDismissTargets = detailsModal
 const adminModalDismissTargets = adminModal
   ? Array.from(adminModal.querySelectorAll('[data-dismiss]'))
   : [];
+const streamModal = document.getElementById('stream-modal');
+const streamModalTitle = document.getElementById('stream-modal-title');
+const streamModalStatus = document.getElementById('stream-modal-status');
+const streamModalUdId = document.getElementById('stream-modal-udid');
+const streamModalUrl = document.getElementById('stream-modal-url');
+const streamModalFrame = document.getElementById('stream-modal-frame');
+const streamModalExternalLink = document.getElementById('stream-modal-open-external');
+const streamModalDescription = document.getElementById('stream-modal-description');
+const streamModalDismissTargets = streamModal
+  ? Array.from(streamModal.querySelectorAll('[data-dismiss]'))
+  : [];
+const streamModalDescriptionDefault = streamModalDescription?.textContent || '';
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
 
@@ -89,6 +101,8 @@ let isFiltersMenuOpen = false;
 let editingNodeId = '';
 let detailsModalNode = null;
 let activeStfSession = null;
+let streamModalNode = null;
+let lastStreamModalTrigger = null;
 
 const REFRESH_INTERVAL = 15000;
 const PAGE_SIZE = 5;
@@ -286,8 +300,147 @@ function deriveStreamUrl(node) {
   return `${STREAM_BASE_URL}/${platformSegment}/${encodeURIComponent(udid)}`;
 }
 
+function setStreamModalFrameSource(url) {
+  if (!streamModalFrame) {
+    return;
+  }
 
-function openStreamWindow(node) {
+  const targetUrl = typeof url === 'string' && url.trim() ? url.trim() : 'about:blank';
+
+  if (streamModalFrame.getAttribute('src') !== targetUrl) {
+    streamModalFrame.setAttribute('src', targetUrl);
+  }
+}
+
+function updateStreamModalMetadata(node, streamUrl) {
+  if (streamModalTitle) {
+    const displayName = node ? formatNodeDisplayName(node) : 'Device';
+    streamModalTitle.textContent = `Live stream: ${displayName}`;
+  }
+
+  if (streamModalStatus) {
+    if (node) {
+      const status = deriveStatus(node);
+      const displayName = formatNodeDisplayName(node);
+      if (status === 'online') {
+        streamModalStatus.textContent = `Streaming ${displayName}`;
+      } else if (status === 'busy') {
+        streamModalStatus.textContent = `${displayName} is currently in use.`;
+      } else {
+        streamModalStatus.textContent = `${displayName} is currently offline.`;
+      }
+      streamModalStatus.hidden = false;
+    } else {
+      streamModalStatus.textContent = '';
+      streamModalStatus.hidden = true;
+    }
+  }
+
+  if (streamModalDescription) {
+    if (node) {
+      const status = deriveStatus(node);
+      if (status === 'busy') {
+        streamModalDescription.textContent =
+          'The device is currently reserved. The stream will be available once the active session ends.';
+      } else if (status !== 'online') {
+        streamModalDescription.textContent =
+          'The device is offline. The stream will resume automatically when it comes back online.';
+      } else {
+        streamModalDescription.textContent = streamModalDescriptionDefault;
+      }
+    } else {
+      streamModalDescription.textContent = streamModalDescriptionDefault;
+    }
+  }
+
+  if (streamModalUdId) {
+    const udid = node?.udid ? String(node.udid).trim() : '';
+    if (udid) {
+      streamModalUdId.textContent = `UDID: ${udid}`;
+      streamModalUdId.hidden = false;
+    } else {
+      streamModalUdId.textContent = '';
+      streamModalUdId.hidden = true;
+    }
+  }
+
+  if (streamModalUrl) {
+    if (streamUrl) {
+      streamModalUrl.textContent = `Stream URL: ${streamUrl}`;
+      streamModalUrl.hidden = false;
+    } else {
+      streamModalUrl.textContent = '';
+      streamModalUrl.hidden = true;
+    }
+  }
+
+  if (streamModalExternalLink) {
+    if (streamUrl) {
+      streamModalExternalLink.hidden = false;
+      streamModalExternalLink.setAttribute('href', streamUrl);
+    } else {
+      streamModalExternalLink.hidden = true;
+      streamModalExternalLink.removeAttribute('href');
+    }
+  }
+}
+
+function focusStreamModal() {
+  if (!streamModal) {
+    return;
+  }
+
+  const focusableElements = Array.from(streamModal.querySelectorAll(FOCUSABLE_SELECTOR)).filter(
+    (element) =>
+      !element.hasAttribute('disabled') &&
+      !element.closest('[hidden]') &&
+      (element.offsetParent !== null || element.getClientRects().length > 0)
+  );
+
+  if (focusableElements.length > 0) {
+    focusableElements[0].focus();
+  }
+}
+
+function openStreamModal(node, streamUrl, { trigger } = {}) {
+  if (!streamModal) {
+    return false;
+  }
+
+  streamModalNode = node || null;
+  lastStreamModalTrigger = trigger || null;
+
+  updateStreamModalMetadata(node, streamUrl);
+  setStreamModalFrameSource(streamUrl);
+
+  streamModal.classList.add('visible');
+  streamModal.setAttribute('aria-hidden', 'false');
+
+  window.requestAnimationFrame(() => focusStreamModal());
+  return true;
+}
+
+function closeStreamModal({ restoreFocus = true } = {}) {
+  if (!streamModal) {
+    return;
+  }
+
+  streamModal.classList.remove('visible');
+  streamModal.setAttribute('aria-hidden', 'true');
+  setStreamModalFrameSource('');
+  updateStreamModalMetadata(null, null);
+
+  if (restoreFocus && lastStreamModalTrigger && typeof lastStreamModalTrigger.focus === 'function') {
+    if (lastStreamModalTrigger.isConnected) {
+      lastStreamModalTrigger.focus();
+    }
+  }
+
+  streamModalNode = null;
+  lastStreamModalTrigger = null;
+}
+
+function openStreamWindow(node, trigger) {
   if (!node || typeof node !== 'object') {
     showToast('Select a node before opening the stream.');
     return;
@@ -302,6 +455,13 @@ function openStreamWindow(node) {
   if (deriveStatus(node) !== 'online') {
     showToast('Stream is only available when the node is online.');
     return;
+  }
+
+  if (streamModal && streamModalFrame) {
+    const opened = openStreamModal(node, streamUrl, { trigger });
+    if (opened) {
+      return;
+    }
   }
 
   const windowFeatures = 'noopener=yes,noreferrer=yes,width=480,height=900';
@@ -1340,6 +1500,27 @@ function refreshNodeViews({ resetPage = false } = {}) {
   renderRows(filteredNodes);
   updateSummary(allNodes, filteredNodes);
   updateFiltersToggleState();
+
+  if (streamModal && streamModal.classList.contains('visible') && streamModalNode) {
+    const updatedStreamNode = allNodes.find(
+      (candidate) => candidate && streamModalNode && candidate.id === streamModalNode.id
+    );
+
+    if (!updatedStreamNode) {
+      closeStreamModal({ restoreFocus: false });
+      showToast('The device stream is no longer available.');
+    } else {
+      streamModalNode = updatedStreamNode;
+      const updatedStreamUrl = deriveStreamUrl(updatedStreamNode);
+      updateStreamModalMetadata(updatedStreamNode, updatedStreamUrl);
+
+      if (deriveStatus(updatedStreamNode) === 'online' && updatedStreamUrl) {
+        setStreamModalFrameSource(updatedStreamUrl);
+      } else {
+        setStreamModalFrameSource('');
+      }
+    }
+  }
 }
 
 function applyFilters(nodes) {
@@ -1875,6 +2056,50 @@ if (detailsModal) {
   });
 }
 
+if (streamModal) {
+  streamModalDismissTargets.forEach((target) => {
+    target.addEventListener('click', () => closeStreamModal());
+  });
+
+  streamModal.addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab' || !streamModal.classList.contains('visible')) {
+      return;
+    }
+
+    const focusableElements = Array.from(streamModal.querySelectorAll(FOCUSABLE_SELECTOR)).filter(
+      (element) =>
+        !element.hasAttribute('disabled') &&
+        !element.closest('[hidden]') &&
+        (element.offsetParent !== null || element.getClientRects().length > 0)
+    );
+
+    if (focusableElements.length === 0) {
+      event.preventDefault();
+      return;
+    }
+
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements[focusableElements.length - 1];
+    const { activeElement } = document;
+
+    if (event.shiftKey) {
+      if (activeElement === firstElement || !streamModal.contains(activeElement)) {
+        event.preventDefault();
+        lastElement.focus();
+      }
+    } else if (activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && streamModal.classList.contains('visible')) {
+      closeStreamModal();
+    }
+  });
+}
+
 if (detailsOpenStfButton) {
   detailsOpenStfButton.addEventListener('click', () => {
     if (!detailsModalNode) {
@@ -1973,7 +2198,7 @@ function renderRows(nodes) {
 
     const actions = [
       `<button class="action-button" data-show="${node.id}">Show details</button>`,
-      `<button class="action-button" data-open-stream="${node.id}">View stream</button>`,
+      `<button class="action-button" data-open-stream="${node.id}">Open Stream</button>`,
       `<button class="action-button" data-open-stf="${node.id}">Open STF session</button>`,
     ];
 
@@ -2010,7 +2235,7 @@ function renderRows(nodes) {
 
     const openStreamButton = tr.querySelector('button[data-open-stream]');
     if (openStreamButton) {
-      openStreamButton.textContent = 'View stream';
+      openStreamButton.textContent = 'Open Stream';
 
       const streamUrl = deriveStreamUrl(node);
       if (!streamUrl) {
@@ -2024,8 +2249,8 @@ function renderRows(nodes) {
       } else {
         openStreamButton.disabled = false;
         openStreamButton.removeAttribute('aria-disabled');
-        openStreamButton.title = 'Open a live stream of this device in a new window.';
-        openStreamButton.addEventListener('click', () => openStreamWindow(node));
+        openStreamButton.title = 'Open a live stream of this device.';
+        openStreamButton.addEventListener('click', () => openStreamWindow(node, openStreamButton));
       }
     }
 
