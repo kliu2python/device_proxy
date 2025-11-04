@@ -1048,7 +1048,7 @@ body.stf-session-active {
 
 .stream-modal__frame-wrapper {
   width: 100%;
-  height: clamp(360px, 65vh, 840px);
+  height: clamp(480px, 75vh, 960px);
   border-radius: 1rem;
   overflow: hidden;
   border: 1px solid var(--border);
@@ -1082,7 +1082,8 @@ body.stf-session-active {
 }
 
 .stream-modal__content {
-  width: min(540px, 100%);
+  width: min(960px, 95vw);
+  max-height: min(92vh, 960px);
 }
 
 .stream-modal__status[hidden],
