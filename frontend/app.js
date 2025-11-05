@@ -416,6 +416,10 @@ function openStreamModal(node, streamUrl, { trigger } = {}) {
   streamModal.classList.add('visible');
   streamModal.setAttribute('aria-hidden', 'false');
 
+  if (document?.body) {
+    document.body.classList.add('stream-modal-active');
+  }
+
   window.requestAnimationFrame(() => focusStreamModal());
   return true;
 }
@@ -427,6 +431,9 @@ function closeStreamModal({ restoreFocus = true } = {}) {
 
   streamModal.classList.remove('visible');
   streamModal.setAttribute('aria-hidden', 'true');
+  if (document?.body) {
+    document.body.classList.remove('stream-modal-active');
+  }
   setStreamModalFrameSource('');
   updateStreamModalMetadata(null, null);
 
