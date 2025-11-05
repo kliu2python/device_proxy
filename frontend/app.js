@@ -507,6 +507,17 @@ function openStreamWindow(node, trigger) {
     return;
   }
 
+  const popupTarget = embedUrl || streamUrl;
+  const popupFeatures = 'noopener,noreferrer,width=480,height=900';
+  const popup = window.open(popupTarget, '_blank', popupFeatures);
+
+  if (popup) {
+    if (typeof popup.focus === 'function') {
+      popup.focus();
+    }
+    return;
+  }
+
   if (streamModal && streamModalFrame) {
     const opened = openStreamModal(node, streamUrl, { trigger });
     if (opened) {
@@ -514,18 +525,7 @@ function openStreamWindow(node, trigger) {
     }
   }
 
-  const windowFeatures = 'noopener=yes,noreferrer=yes,width=480,height=900';
-  const popupTarget = embedUrl || streamUrl;
-  const popup = window.open(popupTarget, '_blank', windowFeatures);
-
-  if (!popup) {
-    showToast('Unable to open stream window. Allow pop-ups and try again.');
-    return;
-  }
-
-  if (typeof popup.focus === 'function') {
-    popup.focus();
-  }
+  showToast('Unable to open stream window. Allow pop-ups and try again.');
 }
 
 
@@ -2249,7 +2249,7 @@ function renderRows(nodes) {
 
     const actions = [
       `<button class="action-button" data-show="${node.id}">Show details</button>`,
-      `<button class="action-button" data-open-stream="${node.id}">Open Stream</button>`,
+      `<button class="action-button" data-open-stream="${node.id}">Open in new tab</button>`,
       `<button class="action-button" data-open-stf="${node.id}">Open STF session</button>`,
     ];
 
@@ -2286,7 +2286,7 @@ function renderRows(nodes) {
 
     const openStreamButton = tr.querySelector('button[data-open-stream]');
     if (openStreamButton) {
-      openStreamButton.textContent = 'Open Stream';
+      openStreamButton.textContent = 'Open in new tab';
 
       const streamUrl = deriveStreamUrl(node);
       if (!streamUrl) {
@@ -2300,7 +2300,7 @@ function renderRows(nodes) {
       } else {
         openStreamButton.disabled = false;
         openStreamButton.removeAttribute('aria-disabled');
-        openStreamButton.title = 'Open a live stream of this device.';
+        openStreamButton.title = 'Open the live stream in a new tab.';
         openStreamButton.addEventListener('click', () => openStreamWindow(node, openStreamButton));
       }
     }
