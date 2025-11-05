@@ -362,7 +362,7 @@
       aria-modal="true"
       aria-hidden="true"
       aria-labelledby="stream-modal-title"
-      aria-describedby="stream-modal-description"
+      aria-describedby="stream-modal-placeholder-message"
     >
       <div class="modal__backdrop" data-dismiss></div>
       <div class="modal__content stream-modal__content" role="document">
@@ -373,35 +373,21 @@
           </button>
         </div>
         <div class="modal__body stream-modal__body">
-          <div class="stream-modal__sidebar">
-            <p id="stream-modal-status" class="stream-modal__status" hidden></p>
-            <div class="stream-modal__meta">
-              <span id="stream-modal-udid" class="stream-modal__udid" hidden></span>
-              <span id="stream-modal-url" class="stream-modal__url" hidden></span>
-              <a
-                id="stream-modal-open-external"
-                class="button button--secondary stream-modal__external"
-                href="#"
-                target="_blank"
-                rel="noopener noreferrer"
-                hidden
-              >
-                Open in new tab
-              </a>
+          <div class="stream-modal__viewer">
+            <div id="stream-modal-placeholder" class="stream-modal__placeholder" hidden>
+              <p id="stream-modal-placeholder-title" class="stream-modal__placeholder-title">Stream unavailable</p>
+              <p id="stream-modal-placeholder-message" class="stream-modal__placeholder-message">
+                The live stream is currently unavailable.
+              </p>
             </div>
-            <p id="stream-modal-description" class="stream-modal__description">
-              The live stream opens in this window. If it does not load, use the "Open in new tab" button to launch it
-              separately.
-            </p>
-          </div>
-          <div class="stream-modal__frame-wrapper">
-            <iframe
-              id="stream-modal-frame"
-              class="stream-modal__frame"
-              title="Device live stream"
-              allow="autoplay; fullscreen"
+            <img
+              id="stream-modal-image"
+              class="stream-modal__image"
+              alt="Device live stream"
               referrerpolicy="no-referrer"
-            ></iframe>
+              loading="lazy"
+              hidden
+            />
           </div>
         </div>
         <div class="modal__footer stream-modal__footer">
