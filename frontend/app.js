@@ -111,6 +111,40 @@ const STATUS_PRIORITY = ['busy', 'offline', 'online'];
 const DEFAULT_API_PORT = 8090;
 const STREAM_BASE_URL = 'http://10.160.13.110:8099/stream';
 
+function buildStreamEmbedBaseUrl() {
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
+    return `${window.location.origin.replace(/\/$/, '')}/stream/embed`;
+  }
+  return '/stream/embed';
+}
+
+function buildStreamEmbedUrl(node, streamUrl) {
+  const resolvedStreamUrl = typeof streamUrl === 'string' && streamUrl.trim()
+    ? streamUrl.trim()
+    : deriveStreamUrl(node);
+
+  if (!resolvedStreamUrl) {
+    return null;
+  }
+
+  const params = new URLSearchParams();
+  params.set('src', resolvedStreamUrl);
+
+  if (node) {
+    const displayName = formatNodeDisplayName(node);
+    if (displayName) {
+      params.set('label', displayName);
+    }
+
+    const udid = node?.udid ? String(node.udid).trim() : '';
+    if (udid) {
+      params.set('subtitle', `UDID: ${udid}`);
+    }
+  }
+
+  return `${buildStreamEmbedBaseUrl()}?${params.toString()}`;
+}
+
 function deriveApiBaseUrl() {
   const overrides = [];
 
@@ -313,6 +347,8 @@ function setStreamModalFrameSource(url) {
 }
 
 function updateStreamModalMetadata(node, streamUrl) {
+  const embedUrl = buildStreamEmbedUrl(node, streamUrl);
+
   if (streamModalTitle) {
     const displayName = node ? formatNodeDisplayName(node) : 'Device';
     streamModalTitle.textContent = `Live stream: ${displayName}`;
@@ -365,8 +401,9 @@ function updateStreamModalMetadata(node, streamUrl) {
   }
 
   if (streamModalUrl) {
-    if (streamUrl) {
-      streamModalUrl.textContent = `Stream URL: ${streamUrl}`;
+    if (embedUrl || streamUrl) {
+      const displayUrl = embedUrl || streamUrl;
+      streamModalUrl.textContent = `Stream URL: ${displayUrl}`;
       streamModalUrl.hidden = false;
     } else {
       streamModalUrl.textContent = '';
@@ -375,12 +412,16 @@ function updateStreamModalMetadata(node, streamUrl) {
   }
 
   if (streamModalExternalLink) {
-    if (streamUrl) {
+    if (embedUrl || streamUrl) {
       streamModalExternalLink.hidden = false;
-      streamModalExternalLink.setAttribute('href', streamUrl);
+      streamModalExternalLink.setAttribute('href', embedUrl || streamUrl);
+      streamModalExternalLink.setAttribute('target', '_blank');
+      streamModalExternalLink.setAttribute('rel', 'noreferrer noopener');
     } else {
       streamModalExternalLink.hidden = true;
       streamModalExternalLink.removeAttribute('href');
+      streamModalExternalLink.removeAttribute('target');
+      streamModalExternalLink.removeAttribute('rel');
     }
   }
 }
@@ -459,6 +500,8 @@ function openStreamWindow(node, trigger) {
     return;
   }
 
+  const embedUrl = buildStreamEmbedUrl(node, streamUrl);
+
   if (deriveStatus(node) !== 'online') {
     showToast('Stream is only available when the node is online.');
     return;
@@ -472,7 +515,8 @@ function openStreamWindow(node, trigger) {
   }
 
   const windowFeatures = 'noopener=yes,noreferrer=yes,width=480,height=900';
-  const popup = window.open(streamUrl, '_blank', windowFeatures);
+  const popupTarget = embedUrl || streamUrl;
+  const popup = window.open(popupTarget, '_blank', windowFeatures);
 
   if (!popup) {
     showToast('Unable to open stream window. Allow pop-ups and try again.');

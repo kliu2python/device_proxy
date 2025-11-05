@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Device Stream</title>
+    <link rel="stylesheet" href="/static/embed.css" />
+  </head>
+  <body data-default-stream="http://10.160.13.110:8099/stream/android/R5CT44LW5LX">
+    <div class="embed-shell">
+      <button type="button" class="embed-close" data-close aria-label="Close stream view">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" class="embed-close__icon">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+
+      <div class="embed-content" role="main">
+        <header class="embed-header">
+          <p id="embed-label" class="embed-label" hidden></p>
+          <p id="embed-subtitle" class="embed-subtitle" hidden></p>
+        </header>
+
+        <div class="embed-frame" aria-live="polite">
+          <div id="embed-placeholder" class="embed-placeholder" hidden>
+            <p class="embed-placeholder__title">Stream unavailable</p>
+            <p class="embed-placeholder__message">
+              Supply a valid <code>src</code> query parameter or data attribute to load a device
+              stream.
+            </p>
+          </div>
+          <img id="embed-stream" class="embed-stream" alt="Device stream" />
+        </div>
+      </div>
+    </div>
+
+    <script defer src="/static/embed.js"></script>
+  </body>
+</html>

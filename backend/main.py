@@ -41,6 +41,13 @@ def _get_index_path() -> Path:
     return index_path
 
 
+def _get_embed_path() -> Path:
+    embed_path = frontend_dir / "embed.html"
+    if not embed_path.exists():
+        raise HTTPException(status_code=404, detail="Embed view not configured")
+    return embed_path
+
+
 @app.get("/", response_class=FileResponse)
 async def serve_frontend():
     return FileResponse(_get_index_path())
@@ -49,6 +56,12 @@ async def serve_frontend():
 @app.get("/admin", response_class=FileResponse)
 async def serve_admin_frontend():
     return FileResponse(_get_index_path())
+
+
+@app.get("/stream/embed", response_class=FileResponse)
+async def serve_stream_embed():
+    return FileResponse(_get_embed_path())
+
 
 @app.on_event("startup")
 async def startup_event():
