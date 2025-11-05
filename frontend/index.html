@@ -373,7 +373,27 @@
           </button>
         </div>
         <div class="modal__body stream-modal__body">
-          <p id="stream-modal-status" class="stream-modal__status" hidden></p>
+          <div class="stream-modal__sidebar">
+            <p id="stream-modal-status" class="stream-modal__status" hidden></p>
+            <div class="stream-modal__meta">
+              <span id="stream-modal-udid" class="stream-modal__udid" hidden></span>
+              <span id="stream-modal-url" class="stream-modal__url" hidden></span>
+              <a
+                id="stream-modal-open-external"
+                class="button button--secondary stream-modal__external"
+                href="#"
+                target="_blank"
+                rel="noopener noreferrer"
+                hidden
+              >
+                Open in new tab
+              </a>
+            </div>
+            <p id="stream-modal-description" class="stream-modal__description">
+              The live stream opens in this window. If it does not load, use the "Open in new tab" button to launch it
+              separately.
+            </p>
+          </div>
           <div class="stream-modal__frame-wrapper">
             <iframe
               id="stream-modal-frame"
@@ -383,24 +403,6 @@
               referrerpolicy="no-referrer"
             ></iframe>
           </div>
-          <div class="stream-modal__meta">
-            <span id="stream-modal-udid" class="stream-modal__udid" hidden></span>
-            <span id="stream-modal-url" class="stream-modal__url" hidden></span>
-            <a
-              id="stream-modal-open-external"
-              class="button button--secondary stream-modal__external"
-              href="#"
-              target="_blank"
-              rel="noopener noreferrer"
-              hidden
-            >
-              Open in new tab
-            </a>
-          </div>
-          <p id="stream-modal-description" class="stream-modal__description">
-            The live stream opens in this window. If it does not load, use the "Open in new tab" button to launch it
-            separately.
-          </p>
         </div>
         <div class="modal__footer stream-modal__footer">
           <button type="button" class="button button--secondary" id="stream-modal-close" data-dismiss>
