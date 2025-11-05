@@ -355,48 +355,29 @@
       </div>
     </div>
 
-    <div
-      id="stream-modal"
-      class="modal stream-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-hidden="true"
-      aria-labelledby="stream-modal-title"
-      aria-describedby="stream-modal-placeholder-message"
-    >
-      <div class="modal__backdrop" data-dismiss></div>
-      <div class="modal__content stream-modal__content" role="document">
-        <div class="modal__header stream-modal__header">
-          <h3 id="stream-modal-title">Device stream</h3>
-          <button type="button" class="modal__close" data-dismiss aria-label="Close stream window">
-            &times;
-          </button>
-        </div>
-        <div class="modal__body stream-modal__body">
-          <div class="stream-modal__viewer">
-            <div id="stream-modal-placeholder" class="stream-modal__placeholder" hidden>
-              <p id="stream-modal-placeholder-title" class="stream-modal__placeholder-title">Stream unavailable</p>
-              <p id="stream-modal-placeholder-message" class="stream-modal__placeholder-message">
-                The live stream is currently unavailable.
-              </p>
-            </div>
-            <img
-              id="stream-modal-image"
-              class="stream-modal__image"
-              alt="Device live stream"
-              referrerpolicy="no-referrer"
-              loading="lazy"
-              hidden
-            />
-          </div>
-        </div>
-        <div class="modal__footer stream-modal__footer">
-          <button type="button" class="button button--secondary" id="stream-modal-close" data-dismiss>
-            Close
-          </button>
+  <div
+    id="stream-modal"
+    class="modal stream-modal"
+    role="dialog"
+    aria-modal="true"
+    aria-hidden="true"
+    aria-labelledby="stream-modal-title"
+    aria-describedby="stream-modal-placeholder-message"
+  >
+    <div class="modal__backdrop" data-dismiss></div>
+    <div class="modal__content stream-modal__content" role="document">
+      <div class="modal__body stream-modal__body">
+        <div class="stream-modal__viewer">
+          <img
+            id="stream-modal-image"
+            class="stream-modal__image"
+            alt="Device live stream"
+            referrerpolicy="no-referrer"
+          />
         </div>
       </div>
     </div>
+  </div>
 
   </body>
 </html>

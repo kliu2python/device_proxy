@@ -423,58 +423,24 @@ function focusStreamModal() {
   }
 }
 
-function openStreamModal(node, streamUrl, { trigger } = {}) {
-  if (!streamModal) {
-    return false;
-  }
+const modal = document.getElementById("stream-modal");
+const backdrop = modal.querySelector(".modal__backdrop");
+const image = document.getElementById("stream-modal-image");
 
-  streamModalNode = node || null;
-  lastStreamModalTrigger = trigger || null;
-
-  updateStreamModalMetadata(node);
-
-  const status = node ? deriveStatus(node) : null;
-
-  if (!streamUrl || status !== 'online') {
-    showStreamPlaceholder({ message: deriveStreamUnavailableMessage(status) });
-  } else {
-    resetStreamPlaceholder();
-    setStreamModalImageSource(streamUrl);
-  }
-
-  streamModal.classList.add('visible');
-  streamModal.setAttribute('aria-hidden', 'false');
-
-  if (document?.body) {
-    document.body.classList.add('stream-modal-active');
-  }
-
-  window.requestAnimationFrame(() => focusStreamModal());
-  return true;
+function openStreamModal(src) {
+  image.src = src;
+  modal.classList.add("visible");
+  document.body.classList.add("stream-modal-active");
 }
 
-function closeStreamModal({ restoreFocus = true } = {}) {
-  if (!streamModal) {
-    return;
-  }
+backdrop.addEventListener("click", () => closeStreamModal());
 
-  streamModal.classList.remove('visible');
-  streamModal.setAttribute('aria-hidden', 'true');
-  if (document?.body) {
-    document.body.classList.remove('stream-modal-active');
-  }
-  setStreamModalImageSource('');
-  resetStreamPlaceholder();
-  updateStreamModalMetadata(null);
-
-  if (restoreFocus && lastStreamModalTrigger && typeof lastStreamModalTrigger.focus === 'function') {
-    if (lastStreamModalTrigger.isConnected) {
-      lastStreamModalTrigger.focus();
-    }
-  }
-
-  streamModalNode = null;
-  lastStreamModalTrigger = null;
+function closeStreamModal() {
+  modal.classList.add("closing");
+  setTimeout(() => {
+    modal.classList.remove("visible", "closing");
+    document.body.classList.remove("stream-modal-active");
+  }, 250); // 与CSS动画时间匹配
 }
 
 function openStreamWindow(node, trigger) {

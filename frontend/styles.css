@@ -699,10 +699,9 @@ body {
 .modal__backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(15, 23, 42, 0.35);
-  backdrop-filter: blur(2px);
+  background: rgba(0, 0, 0, 0.15);
+  cursor: pointer;
 }
-
 .modal__content {
   position: relative;
   background: var(--surface);
@@ -723,18 +722,11 @@ body {
   transform: translateY(0);
 }
 
-.modal__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+.modal__header,
+.modal__footer {
+  display: none;
 }
 
-.modal__footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.75rem;
-}
 
 .modal__close {
   appearance: none;
@@ -1017,53 +1009,115 @@ body.stream-modal-active {
   text-decoration: underline;
   outline: none;
 }
-
 .stream-modal {
-  padding: 0;
-}
-
-.stream-modal__content {
-  display: flex;
-  flex-direction: column;
-  width: min(520px, 95vw);
-  max-width: 95vw;
-  max-height: min(90vh, 880px);
-  overflow: hidden;
-  padding: clamp(1.5rem, 3vw, 2rem);
-  gap: 1.25rem;
-}
-
-.stream-modal__body {
-  display: flex;
-  flex: 1 1 auto;
-  align-items: stretch;
-  justify-content: center;
-  min-height: 0;
-}
-
-.stream-modal__viewer {
-  position: relative;
-  flex: 1 1 auto;
+  position: fixed;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 1rem;
-  border: 1px solid var(--border);
-  background: #000;
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
-  padding: 0.75rem;
-  min-height: clamp(320px, 70vh, 720px);
+  z-index: 1000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
 }
 
+/* 当 modal 可见时（通过添加 .visible 或 display:flex 控制） */
+.stream-modal.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 背景遮罩：微灰色 + 点击可关闭 */
+.stream-modal .modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+  animation: modal-fade-in 0.25s ease;
+}
+
+
+
+/* 弹窗内容区：无边框、透明、自适应大小 */
+.stream-modal__content {
+  position: relative;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 95vw;
+  max-height: 95vh;
+  overflow: visible;
+  animation: modal-zoom-in 0.25s ease;
+}
+
+/* 主体区域：仅保留图片显示 */
+.stream-modal__viewer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  padding: 0;
+  width: auto;
+  height: auto;
+}
+
+/* 图片：自适应大小，带轻微圆角 */
 .stream-modal__image {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
   display: block;
+  width: auto;
+  height: auto;
+  max-width: 95vw;
+  max-height: 95vh;
+  border: none;
+  border-radius: 10px;
+  box-shadow: none;
+  transition: transform 0.25s ease;
 }
 
-.stream-modal__image[hidden] {
-  display: none;
+/* 可选：图片加载动画 */
+.stream-modal__image:visible {
+  animation: modal-fade-in 0.25s ease;
+}
+
+/* 背景和弹窗动画 */
+@keyframes modal-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modal-zoom-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* 关闭时动画（淡出） */
+.stream-modal.closing {
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.stream-modal.closing .stream-modal__content {
+  transform: scale(0.97);
+  transition: transform 0.25s ease;
+}
+
+.stream-modal__body {
+  padding: 0;
 }
 
 .stream-modal__placeholder {
@@ -1106,19 +1160,9 @@ body.stream-modal-active {
     padding-bottom: 1.5rem;
   }
 
-  .stream-modal__content {
-    padding: 1rem;
-  }
-
   .stream-modal__body {
     flex-direction: column;
   }
-
-  .stream-modal__viewer {
-    min-height: clamp(280px, 65vh, 640px);
-    padding: 0.5rem;
-  }
-
   .actions {
     width: 100%;
   }
