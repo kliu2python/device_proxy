@@ -452,7 +452,8 @@ function openStreamModal(node, streamUrl, { trigger } = {}) {
   lastStreamModalTrigger = trigger || null;
 
   updateStreamModalMetadata(node, streamUrl);
-  setStreamModalFrameSource(streamUrl);
+  const frameUrl = buildStreamEmbedUrl(node, streamUrl) || streamUrl;
+  setStreamModalFrameSource(frameUrl);
 
   streamModal.classList.add('visible');
   streamModal.setAttribute('aria-hidden', 'false');
@@ -500,21 +501,8 @@ function openStreamWindow(node, trigger) {
     return;
   }
 
-  const embedUrl = buildStreamEmbedUrl(node, streamUrl);
-
   if (deriveStatus(node) !== 'online') {
     showToast('Stream is only available when the node is online.');
-    return;
-  }
-
-  const popupTarget = embedUrl || streamUrl;
-  const popupFeatures = 'noopener,noreferrer,width=480,height=900';
-  const popup = window.open(popupTarget, '_blank', popupFeatures);
-
-  if (popup) {
-    if (typeof popup.focus === 'function') {
-      popup.focus();
-    }
     return;
   }
 
@@ -523,6 +511,16 @@ function openStreamWindow(node, trigger) {
     if (opened) {
       return;
     }
+  }
+
+  const embedUrl = buildStreamEmbedUrl(node, streamUrl) || streamUrl;
+  const popup = window.open(embedUrl, '_blank', 'noopener,noreferrer,width=480,height=900');
+
+  if (popup) {
+    if (typeof popup.focus === 'function') {
+      popup.focus();
+    }
+    return;
   }
 
   showToast('Unable to open stream window. Allow pop-ups and try again.');
