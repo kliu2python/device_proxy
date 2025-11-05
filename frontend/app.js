@@ -76,16 +76,17 @@ const adminModalDismissTargets = adminModal
   : [];
 const streamModal = document.getElementById('stream-modal');
 const streamModalTitle = document.getElementById('stream-modal-title');
-const streamModalStatus = document.getElementById('stream-modal-status');
-const streamModalUdId = document.getElementById('stream-modal-udid');
-const streamModalUrl = document.getElementById('stream-modal-url');
-const streamModalFrame = document.getElementById('stream-modal-frame');
-const streamModalExternalLink = document.getElementById('stream-modal-open-external');
-const streamModalDescription = document.getElementById('stream-modal-description');
+const streamModalImage = document.getElementById('stream-modal-image');
+const streamModalPlaceholder = document.getElementById('stream-modal-placeholder');
+const streamModalPlaceholderTitle = document.getElementById('stream-modal-placeholder-title');
+const streamModalPlaceholderMessage = document.getElementById('stream-modal-placeholder-message');
 const streamModalDismissTargets = streamModal
   ? Array.from(streamModal.querySelectorAll('[data-dismiss]'))
   : [];
-const streamModalDescriptionDefault = streamModalDescription?.textContent || '';
+const streamModalPlaceholderDefaultTitle =
+  streamModalPlaceholderTitle?.textContent?.trim() || 'Stream unavailable';
+const streamModalPlaceholderDefaultMessage =
+  streamModalPlaceholderMessage?.textContent?.trim() || 'The live stream is currently unavailable.';
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea, input, select, [tabindex]:not([tabindex="-1"])';
 
@@ -334,95 +335,74 @@ function deriveStreamUrl(node) {
   return `${STREAM_BASE_URL}/${platformSegment}/${encodeURIComponent(udid)}`;
 }
 
-function setStreamModalFrameSource(url) {
-  if (!streamModalFrame) {
-    return;
+function resetStreamPlaceholder() {
+  if (streamModalPlaceholderTitle) {
+    streamModalPlaceholderTitle.textContent = streamModalPlaceholderDefaultTitle;
   }
-
-  const targetUrl = typeof url === 'string' && url.trim() ? url.trim() : 'about:blank';
-
-  if (streamModalFrame.getAttribute('src') !== targetUrl) {
-    streamModalFrame.setAttribute('src', targetUrl);
+  if (streamModalPlaceholderMessage) {
+    streamModalPlaceholderMessage.textContent = streamModalPlaceholderDefaultMessage;
+  }
+  if (streamModalPlaceholder) {
+    streamModalPlaceholder.hidden = true;
   }
 }
 
-function updateStreamModalMetadata(node, streamUrl) {
-  const embedUrl = buildStreamEmbedUrl(node, streamUrl);
+function showStreamPlaceholder({ title, message } = {}) {
+  if (!streamModalPlaceholder) {
+    return;
+  }
 
+  if (streamModalPlaceholderTitle) {
+    streamModalPlaceholderTitle.textContent = title || streamModalPlaceholderDefaultTitle;
+  }
+
+  if (streamModalPlaceholderMessage) {
+    streamModalPlaceholderMessage.textContent = message || streamModalPlaceholderDefaultMessage;
+  }
+
+  streamModalPlaceholder.hidden = false;
+
+  if (streamModalImage) {
+    streamModalImage.hidden = true;
+    streamModalImage.removeAttribute('src');
+  }
+}
+
+function setStreamModalImageSource(url) {
+  if (!streamModalImage) {
+    return;
+  }
+
+  const targetUrl = typeof url === 'string' && url.trim() ? url.trim() : '';
+
+  if (!targetUrl) {
+    streamModalImage.removeAttribute('src');
+    streamModalImage.hidden = true;
+    return;
+  }
+
+  if (streamModalImage.getAttribute('src') !== targetUrl) {
+    streamModalImage.hidden = true;
+    streamModalImage.setAttribute('src', targetUrl);
+  }
+}
+
+function deriveStreamUnavailableMessage(status) {
+  if (status === 'busy') {
+    return 'The device is currently reserved. The stream will be available once the active session ends.';
+  }
+
+  if (status === 'offline') {
+    return 'The device is offline. The stream will resume automatically when it comes back online.';
+  }
+
+  return streamModalPlaceholderDefaultMessage;
+}
+
+function updateStreamModalMetadata(node) {
   if (streamModalTitle) {
     const displayName = node ? formatNodeDisplayName(node) : 'Device';
-    streamModalTitle.textContent = `Live stream: ${displayName}`;
-  }
-
-  if (streamModalStatus) {
-    if (node) {
-      const status = deriveStatus(node);
-      const displayName = formatNodeDisplayName(node);
-      if (status === 'online') {
-        streamModalStatus.textContent = `Streaming ${displayName}`;
-      } else if (status === 'busy') {
-        streamModalStatus.textContent = `${displayName} is currently in use.`;
-      } else {
-        streamModalStatus.textContent = `${displayName} is currently offline.`;
-      }
-      streamModalStatus.hidden = false;
-    } else {
-      streamModalStatus.textContent = '';
-      streamModalStatus.hidden = true;
-    }
-  }
-
-  if (streamModalDescription) {
-    if (node) {
-      const status = deriveStatus(node);
-      if (status === 'busy') {
-        streamModalDescription.textContent =
-          'The device is currently reserved. The stream will be available once the active session ends.';
-      } else if (status !== 'online') {
-        streamModalDescription.textContent =
-          'The device is offline. The stream will resume automatically when it comes back online.';
-      } else {
-        streamModalDescription.textContent = streamModalDescriptionDefault;
-      }
-    } else {
-      streamModalDescription.textContent = streamModalDescriptionDefault;
-    }
-  }
-
-  if (streamModalUdId) {
-    const udid = node?.udid ? String(node.udid).trim() : '';
-    if (udid) {
-      streamModalUdId.textContent = `UDID: ${udid}`;
-      streamModalUdId.hidden = false;
-    } else {
-      streamModalUdId.textContent = '';
-      streamModalUdId.hidden = true;
-    }
-  }
-
-  if (streamModalUrl) {
-    if (embedUrl || streamUrl) {
-      const displayUrl = embedUrl || streamUrl;
-      streamModalUrl.textContent = `Stream URL: ${displayUrl}`;
-      streamModalUrl.hidden = false;
-    } else {
-      streamModalUrl.textContent = '';
-      streamModalUrl.hidden = true;
-    }
-  }
-
-  if (streamModalExternalLink) {
-    if (embedUrl || streamUrl) {
-      streamModalExternalLink.hidden = false;
-      streamModalExternalLink.setAttribute('href', embedUrl || streamUrl);
-      streamModalExternalLink.setAttribute('target', '_blank');
-      streamModalExternalLink.setAttribute('rel', 'noreferrer noopener');
-    } else {
-      streamModalExternalLink.hidden = true;
-      streamModalExternalLink.removeAttribute('href');
-      streamModalExternalLink.removeAttribute('target');
-      streamModalExternalLink.removeAttribute('rel');
-    }
+    streamModalTitle.textContent = node ? `Live stream: ${displayName}` : 'Device stream';
   }
 }
 
@@ -451,9 +431,16 @@ function openStreamModal(node, streamUrl, { trigger } = {}) {
   streamModalNode = node || null;
   lastStreamModalTrigger = trigger || null;
 
-  updateStreamModalMetadata(node, streamUrl);
-  const frameUrl = buildStreamEmbedUrl(node, streamUrl) || streamUrl;
-  setStreamModalFrameSource(frameUrl);
+  updateStreamModalMetadata(node);
+
+  const status = node ? deriveStatus(node) : null;
+
+  if (!streamUrl || status !== 'online') {
+    showStreamPlaceholder({ message: deriveStreamUnavailableMessage(status) });
+  } else {
+    resetStreamPlaceholder();
+    setStreamModalImageSource(streamUrl);
+  }
 
   streamModal.classList.add('visible');
   streamModal.setAttribute('aria-hidden', 'false');
@@ -476,8 +463,9 @@ function closeStreamModal({ restoreFocus = true } = {}) {
   if (document?.body) {
     document.body.classList.remove('stream-modal-active');
   }
-  setStreamModalFrameSource('');
-  updateStreamModalMetadata(null, null);
+  setStreamModalImageSource('');
+  resetStreamPlaceholder();
+  updateStreamModalMetadata(null);
 
   if (restoreFocus && lastStreamModalTrigger && typeof lastStreamModalTrigger.focus === 'function') {
     if (lastStreamModalTrigger.isConnected) {
@@ -506,7 +494,7 @@ function openStreamWindow(node, trigger) {
     return;
   }
 
-  if (streamModal && streamModalFrame) {
+  if (streamModal && streamModalImage) {
     const opened = openStreamModal(node, streamUrl, { trigger });
     if (opened) {
       return;
@@ -1561,12 +1549,15 @@ function refreshNodeViews({ resetPage = false } = {}) {
     } else {
       streamModalNode = updatedStreamNode;
       const updatedStreamUrl = deriveStreamUrl(updatedStreamNode);
-      updateStreamModalMetadata(updatedStreamNode, updatedStreamUrl);
+      const status = deriveStatus(updatedStreamNode);
 
-      if (deriveStatus(updatedStreamNode) === 'online' && updatedStreamUrl) {
-        setStreamModalFrameSource(updatedStreamUrl);
+      updateStreamModalMetadata(updatedStreamNode);
+
+      if (status === 'online' && updatedStreamUrl) {
+        resetStreamPlaceholder();
+        setStreamModalImageSource(updatedStreamUrl);
       } else {
-        setStreamModalFrameSource('');
+        showStreamPlaceholder({ message: deriveStreamUnavailableMessage(status) });
       }
     }
   }
@@ -2149,6 +2140,21 @@ if (streamModal) {
   });
 }
 
+if (streamModalImage) {
+  streamModalImage.addEventListener('load', () => {
+    streamModalImage.hidden = false;
+    if (streamModalPlaceholder) {
+      streamModalPlaceholder.hidden = true;
+    }
+  });
+
+  streamModalImage.addEventListener('error', () => {
+    showStreamPlaceholder({
+      message: 'We were unable to load the requested stream. Please try again later.',
+    });
+  });
+}
+
 if (detailsOpenStfButton) {
   detailsOpenStfButton.addEventListener('click', () => {
     if (!detailsModalNode) {
@@ -2247,7 +2253,7 @@ function renderRows(nodes) {
 
     const actions = [
       `<button class="action-button" data-show="${node.id}">Show details</button>`,
-      `<button class="action-button" data-open-stream="${node.id}">Open in new tab</button>`,
+      `<button class="action-button" data-open-stream="${node.id}">View stream</button>`,
       `<button class="action-button" data-open-stf="${node.id}">Open STF session</button>`,
     ];
 
@@ -2284,7 +2290,7 @@ function renderRows(nodes) {
 
     const openStreamButton = tr.querySelector('button[data-open-stream]');
     if (openStreamButton) {
-      openStreamButton.textContent = 'Open in new tab';
+      openStreamButton.textContent = 'View stream';
 
       const streamUrl = deriveStreamUrl(node);
       if (!streamUrl) {
@@ -2298,7 +2304,7 @@ function renderRows(nodes) {
       } else {
         openStreamButton.disabled = false;
         openStreamButton.removeAttribute('aria-disabled');
-        openStreamButton.title = 'Open the live stream in a new tab.';
+        openStreamButton.title = 'View the live stream in a popup window.';
         openStreamButton.addEventListener('click', () => openStreamWindow(node, openStreamButton));
       }
     }
