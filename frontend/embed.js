@@ -3,12 +3,24 @@
   const streamSrc = (params.get('src') || params.get('url') || '').trim();
   const label = (params.get('label') || params.get('title') || '').trim();
   const subtitle = (params.get('subtitle') || params.get('description') || '').trim();
-  const defaultStream = document.body.getAttribute('data-default-stream');
-
   const streamImage = document.getElementById('embed-stream');
   const placeholder = document.getElementById('embed-placeholder');
   const labelEl = document.getElementById('embed-label');
   const subtitleEl = document.getElementById('embed-subtitle');
+
+  function pickFirstValue(values) {
+    return values.find((value) => value && value.trim());
+  }
+
+  const defaultStream = pickFirstValue([
+    document.body.dataset.src,
+    document.body.dataset.url,
+    document.body.dataset.defaultStream,
+    streamImage.dataset.src,
+    streamImage.dataset.url,
+    streamImage.getAttribute('data-default-stream'),
+    document.body.getAttribute('data-default-stream'),
+  ]);
 
   function showPlaceholder(message) {
     if (message) {
@@ -32,7 +44,7 @@
     subtitleEl.hidden = false;
   }
 
-  const srcToUse = streamSrc || defaultStream;
+  const srcToUse = streamSrc || (defaultStream && defaultStream.trim());
 
   if (!srcToUse) {
     showPlaceholder('No stream URL was provided.');
