@@ -817,10 +817,6 @@ body.stf-session-active {
   overflow: hidden;
 }
 
-body.stream-modal-active {
-  overflow: hidden;
-}
-
 .modal__body {
   display: flex;
   flex-direction: column;
@@ -1009,150 +1005,6 @@ body.stream-modal-active {
   text-decoration: underline;
   outline: none;
 }
-.stream-modal {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.25s ease;
-}
-
-/* 当 modal 可见时（通过添加 .visible 或 display:flex 控制） */
-.stream-modal.visible {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* 背景遮罩：微灰色 + 点击可关闭 */
-.stream-modal .modal__backdrop {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.15);
-  cursor: pointer;
-  animation: modal-fade-in 0.25s ease;
-}
-
-
-
-/* 弹窗内容区：无边框、透明、自适应大小 */
-.stream-modal__content {
-  position: relative;
-  background: transparent;
-  border: none;
-  box-shadow: none;
-  padding: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  max-width: 95vw;
-  max-height: 95vh;
-  overflow: visible;
-  animation: modal-zoom-in 0.25s ease;
-}
-
-/* 主体区域：仅保留图片显示 */
-.stream-modal__viewer {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  padding: 0;
-  width: auto;
-  height: auto;
-}
-
-/* 图片：自适应大小，带轻微圆角 */
-.stream-modal__image {
-  display: block;
-  width: auto;
-  height: auto;
-  max-width: 95vw;
-  max-height: 95vh;
-  border: none;
-  border-radius: 10px;
-  box-shadow: none;
-  transition: transform 0.25s ease;
-}
-
-/* 可选：图片加载动画 */
-.stream-modal__image:visible {
-  animation: modal-fade-in 0.25s ease;
-}
-
-/* 背景和弹窗动画 */
-@keyframes modal-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes modal-zoom-in {
-  from {
-    opacity: 0;
-    transform: scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-/* 关闭时动画（淡出） */
-.stream-modal.closing {
-  opacity: 0;
-  transition: opacity 0.25s ease;
-}
-
-.stream-modal.closing .stream-modal__content {
-  transform: scale(0.97);
-  transition: transform 0.25s ease;
-}
-
-.stream-modal__body {
-  padding: 0;
-}
-
-.stream-modal__placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  gap: 0.5rem;
-  color: var(--text-muted);
-  padding: 1rem;
-}
-
-.stream-modal__placeholder[hidden] {
-  display: none;
-}
-
-.stream-modal__placeholder-title {
-  margin: 0;
-  font-weight: 600;
-  color: var(--text);
-}
-
-.stream-modal__placeholder-message {
-  margin: 0;
-  font-size: 0.95rem;
-  line-height: 1.4;
-}
-
-.stream-modal__footer {
-  margin-top: 0;
-  padding-top: 0;
-  justify-content: flex-end;
-}
-
 @media (max-width: 720px) {
   .page-header {
     flex-direction: column;
@@ -1160,9 +1012,6 @@ body.stream-modal-active {
     padding-bottom: 1.5rem;
   }
 
-  .stream-modal__body {
-    flex-direction: column;
-  }
   .actions {
     width: 100%;
   }
