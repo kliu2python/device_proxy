@@ -496,6 +496,10 @@ body {
   padding: 0.35rem 0.75rem;
   font-size: 0.85rem;
   font-weight: 600;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
@@ -737,47 +741,16 @@ body {
   display: none;
 }
 
-.stf-session__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1rem 1.5rem;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  box-shadow: 0 2px 8px var(--shadow);
-  z-index: 1;
-}
-
-.stf-session__meta {
+.stf-session__content {
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
-  min-width: 0;
-}
-
-.stf-session__title {
-  margin: 0;
-  font-size: 1.4rem;
-  line-height: 1.2;
-  word-break: break-word;
-}
-
-.stf-session__subtitle,
-.stf-session__status {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 0.95rem;
-  word-break: break-word;
-}
-
-.stf-session__status {
-  font-style: italic;
+  min-height: 0;
 }
 
 .stf-session__message {
   margin: 0;
-  padding: 0 1.5rem 1rem;
+  padding: 0.75rem 1.5rem 0.5rem;
   color: var(--text-muted);
   font-size: 0.95rem;
   line-height: 1.4;
@@ -788,6 +761,15 @@ body {
   width: 100%;
   border: none;
   background: #0f172a;
+  min-height: 0;
+}
+
+.stf-session__footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.5rem 1.5rem;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
 }
 
 body.stf-session-active {
