@@ -13,9 +13,6 @@ const detailsBody = document.getElementById('details-modal-body');
 const detailsActions = document.getElementById('details-modal-actions');
 const detailsOpenStfButton = document.getElementById('details-open-stf');
 const stfSessionContainer = document.getElementById('stf-session-container');
-const stfSessionTitle = document.getElementById('stf-session-title');
-const stfSessionSubtitle = document.getElementById('stf-session-subtitle');
-const stfSessionStatus = document.getElementById('stf-session-status');
 const stfSessionMessage = document.getElementById('stf-session-message');
 const stfSessionFrame = document.getElementById('stf-session-frame');
 const stfSessionCloseButton = document.getElementById('stf-session-close');
@@ -833,7 +830,7 @@ async function handleOpenInStf(node, trigger) {
   } finally {
     if (!sessionActivated && trigger && trigger.isConnected) {
       trigger.disabled = false;
-      trigger.textContent = originalLabel || 'Open STF session';
+      trigger.textContent = originalLabel || 'Use';
     }
 
     let updatedNode = null;
@@ -990,22 +987,6 @@ function updateStfSessionUi(session) {
     delete stfSessionContainer.dataset.nodeId;
   }
 
-  if (stfSessionTitle) {
-    stfSessionTitle.textContent = session?.displayName || 'Active STF session';
-  }
-
-  if (stfSessionSubtitle) {
-    const subtitle = session?.endpoint || '';
-    stfSessionSubtitle.textContent = subtitle;
-    stfSessionSubtitle.hidden = !subtitle;
-  }
-
-  if (stfSessionStatus) {
-    const statusMessage = buildSessionStatusMessage(session);
-    stfSessionStatus.textContent = statusMessage;
-    stfSessionStatus.hidden = !statusMessage;
-  }
-
   const launchUrl = typeof session?.launchUrl === 'string' ? session.launchUrl.trim() : '';
 
   if (document?.body) {
@@ -1016,14 +997,24 @@ function updateStfSessionUi(session) {
 
   if (stfSessionMessage) {
     const messageParts = [];
+    if (session?.displayName) {
+      messageParts.push(session.displayName);
+    }
+
+    const statusMessage = buildSessionStatusMessage(session);
+    if (statusMessage) {
+      messageParts.push(statusMessage);
+    }
+
     if (launchUrl) {
-      messageParts.push('The STF session is displayed below.');
+      messageParts.push('The STF session is shown below.');
     } else {
       messageParts.push('An STF session is active.');
     }
     messageParts.push('Select "End session" when you are finished to release the device.');
+
     stfSessionMessage.textContent = messageParts.join(' ');
-    stfSessionMessage.hidden = false;
+    stfSessionMessage.hidden = messageParts.length === 0;
   }
 
   if (stfSessionCloseButton) {
@@ -1040,20 +1031,6 @@ function hideStfSessionUi() {
   if (stfSessionContainer) {
     stfSessionContainer.hidden = true;
     delete stfSessionContainer.dataset.nodeId;
-  }
-
-  if (stfSessionTitle) {
-    stfSessionTitle.textContent = '';
-  }
-
-  if (stfSessionSubtitle) {
-    stfSessionSubtitle.textContent = '';
-    stfSessionSubtitle.hidden = true;
-  }
-
-  if (stfSessionStatus) {
-    stfSessionStatus.textContent = '';
-    stfSessionStatus.hidden = true;
   }
 
   if (stfSessionMessage) {
@@ -1781,7 +1758,7 @@ function updateDetailsModalActions(node) {
     return;
   }
 
-  detailsOpenStfButton.textContent = 'Open STF session';
+  detailsOpenStfButton.textContent = 'Use';
 
   if (!hasNode) {
     detailsOpenStfButton.disabled = true;
@@ -2008,7 +1985,7 @@ function renderRows(nodes) {
     const actions = [
       `<button class="action-button" data-show="${node.id}">Show details</button>`,
       `<button class="action-button" data-open-stream="${node.id}">View stream</button>`,
-      `<button class="action-button" data-open-stf="${node.id}">Open STF session</button>`,
+      `<button class="action-button" data-open-stf="${node.id}">Use</button>`,
     ];
 
     if (isAdminUnlocked && adminToken) {
@@ -2069,7 +2046,7 @@ function renderRows(nodes) {
       const isSessionActiveForNode = activeStfSession?.nodeId === node.id;
       const isAnotherSessionActive = activeStfSession && !isSessionActiveForNode;
 
-      openStfButton.textContent = isSessionActiveForNode ? 'Session active' : 'Open STF session';
+      openStfButton.textContent = isSessionActiveForNode ? 'Session active' : 'Use';
 
       if (!supportsStf) {
         openStfButton.disabled = true;
