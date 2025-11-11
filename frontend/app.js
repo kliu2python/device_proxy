@@ -87,6 +87,225 @@ let editingNodeId = '';
 let detailsModalNode = null;
 let activeStfSession = null;
 
+function normaliseCookiePath(value) {
+  if (typeof value !== 'string') {
+    return '/';
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '/';
+  }
+
+  if (!trimmed.startsWith('/')) {
+    return `/${trimmed}`;
+  }
+
+  return trimmed;
+}
+
+function resolveCookieMaxAgeSeconds(session) {
+  if (!session) {
+    return null;
+  }
+
+  const ttlSeconds = Number(session.ttlSeconds);
+  if (Number.isFinite(ttlSeconds) && ttlSeconds > 0) {
+    return Math.round(ttlSeconds);
+  }
+
+  if (session.expiresAt) {
+    try {
+      const expiresAt = new Date(session.expiresAt);
+      if (!Number.isNaN(expiresAt.valueOf())) {
+        const deltaSeconds = Math.floor((expiresAt.getTime() - Date.now()) / 1000);
+        if (deltaSeconds > 0) {
+          return deltaSeconds;
+        }
+      }
+    } catch (error) {
+      console.debug('Unable to parse STF session expiry', error);
+    }
+  }
+
+  return null;
+}
+
+function applyStfSessionAuth(session) {
+  if (
+    !session ||
+    typeof document === 'undefined' ||
+    typeof document.cookie === 'undefined'
+  ) {
+    return null;
+  }
+
+  const token = typeof session.jwt === 'string' ? session.jwt.trim() : '';
+  const cookieNameRaw =
+    typeof session.jwtCookieName === 'string' ? session.jwtCookieName.trim() : '';
+
+  if (!token || !cookieNameRaw) {
+    return null;
+  }
+
+  const cookiePath = normaliseCookiePath(session.jwtCookiePath);
+  const launchUrl = typeof session.launchUrl === 'string' ? session.launchUrl : '';
+  let parsedUrl = null;
+
+  try {
+    parsedUrl = new URL(launchUrl, window.location.href);
+  } catch (error) {
+    // Ignore invalid URLs; cookie application will fall back to current location context.
+  }
+
+  const hostname =
+    typeof session.targetHostname === 'string' && session.targetHostname
+      ? session.targetHostname
+      : parsedUrl
+      ? parsedUrl.hostname
+      : window.location?.hostname;
+
+  if (hostname && !session.targetHostname) {
+    session.targetHostname = hostname;
+  }
+
+  const protocol =
+    typeof session.targetProtocol === 'string' && session.targetProtocol
+      ? session.targetProtocol
+      : parsedUrl
+      ? parsedUrl.protocol
+      : window.location?.protocol;
+
+  if (protocol && !session.targetProtocol) {
+    session.targetProtocol = protocol;
+  }
+
+  const configuredDomain =
+    typeof session.jwtCookieDomain === 'string' && session.jwtCookieDomain.trim()
+      ? session.jwtCookieDomain.trim()
+      : '';
+
+  let cookieDomain = configuredDomain;
+  if (!cookieDomain && hostname && hostname !== window.location.hostname) {
+    cookieDomain = hostname;
+  }
+
+  const cookieParts = [
+    `${encodeURIComponent(cookieNameRaw)}=${encodeURIComponent(token)}`,
+    `Path=${cookiePath}`,
+  ];
+
+  if (cookieDomain) {
+    cookieParts.push(`Domain=${cookieDomain}`);
+  }
+
+  const maxAge = resolveCookieMaxAgeSeconds(session);
+  if (maxAge && Number.isFinite(maxAge) && maxAge > 0) {
+    cookieParts.push(`Max-Age=${Math.max(1, Math.round(maxAge))}`);
+  } else {
+    const fallbackExpiry = new Date(Date.now() + 60 * 60 * 1000);
+    cookieParts.push(`Expires=${fallbackExpiry.toUTCString()}`);
+  }
+
+  const isCrossSite = Boolean(cookieDomain) && hostname && hostname !== window.location.hostname;
+  const isSecureContext = protocol === 'https:' || window.location?.protocol === 'https:';
+  let sameSite = 'Lax';
+
+  if (isCrossSite) {
+    if (isSecureContext) {
+      sameSite = 'None';
+      cookieParts.push('SameSite=None');
+      cookieParts.push('Secure');
+    } else {
+      console.warn(
+        'STF session cookie requires cross-site access but HTTPS is not enabled; falling back to SameSite=Lax.'
+      );
+      cookieParts.push('SameSite=Lax');
+    }
+  } else {
+    cookieParts.push('SameSite=Lax');
+    if (isSecureContext) {
+      cookieParts.push('Secure');
+    }
+  }
+
+  try {
+    document.cookie = cookieParts.join('; ');
+    session.jwtCookieName = cookieNameRaw;
+    session.jwtCookiePath = cookiePath;
+    session.jwtCookieDomainApplied = cookieDomain || '';
+    session.jwtCookieSameSite = sameSite;
+    session.jwtCookieSecure = cookieParts.includes('Secure');
+    session.jwtAppliedAt = Date.now();
+  } catch (error) {
+    console.warn('Failed to apply STF session authentication cookie', error);
+    return null;
+  }
+
+  return {
+    domain: cookieDomain || '',
+    sameSite,
+    secure: session.jwtCookieSecure === true,
+    path: cookiePath,
+  };
+}
+
+function clearStfSessionAuth(session) {
+  if (
+    !session ||
+    typeof document === 'undefined' ||
+    typeof document.cookie === 'undefined'
+  ) {
+    return;
+  }
+
+  const cookieName =
+    typeof session.jwtCookieName === 'string' ? session.jwtCookieName.trim() : '';
+  if (!cookieName) {
+    return;
+  }
+
+  const cookiePath = normaliseCookiePath(session.jwtCookiePath);
+  const cookieDomain =
+    typeof session.jwtCookieDomainApplied === 'string'
+      ? session.jwtCookieDomainApplied.trim()
+      : '';
+  const sameSite =
+    typeof session.jwtCookieSameSite === 'string' && session.jwtCookieSameSite.trim()
+      ? session.jwtCookieSameSite.trim()
+      : '';
+
+  const parts = [
+    `${encodeURIComponent(cookieName)}=`,
+    `Path=${cookiePath}`,
+    'Max-Age=0',
+    'Expires=Thu, 01 Jan 1970 00:00:00 GMT',
+  ];
+
+  if (cookieDomain) {
+    parts.push(`Domain=${cookieDomain}`);
+  }
+
+  if (sameSite) {
+    parts.push(`SameSite=${sameSite}`);
+  }
+
+  const shouldMarkSecure =
+    session.jwtCookieSecure === true ||
+    session.targetProtocol === 'https:' ||
+    window.location?.protocol === 'https:';
+
+  if (shouldMarkSecure) {
+    parts.push('Secure');
+  }
+
+  try {
+    document.cookie = parts.join('; ');
+  } catch (error) {
+    console.warn('Failed to clear STF session authentication cookie', error);
+  }
+}
+
 const REFRESH_INTERVAL = 15000;
 const PAGE_SIZE = 5;
 
@@ -797,6 +1016,35 @@ async function handleOpenInStf(node, trigger) {
     }
 
     const stfConfig = getNodeStfConfig(node);
+    let parsedLaunchUrl = null;
+    try {
+      parsedLaunchUrl = new URL(finalUrl, window.location.href);
+      finalUrl = parsedLaunchUrl.toString();
+    } catch (parseError) {
+      parsedLaunchUrl = null;
+    }
+
+    const cookieName =
+      (typeof response.jwt_cookie_name === 'string' && response.jwt_cookie_name.trim())
+        ? response.jwt_cookie_name.trim()
+        : (typeof stfConfig?.jwt_cookie_name === 'string' && stfConfig.jwt_cookie_name.trim())
+        ? stfConfig.jwt_cookie_name.trim()
+        : '';
+
+    const cookiePath =
+      (typeof response.jwt_cookie_path === 'string' && response.jwt_cookie_path.trim())
+        ? response.jwt_cookie_path.trim()
+        : (typeof stfConfig?.jwt_cookie_path === 'string' && stfConfig.jwt_cookie_path.trim())
+        ? stfConfig.jwt_cookie_path.trim()
+        : '';
+
+    const cookieDomain =
+      (typeof response.jwt_cookie_domain === 'string' && response.jwt_cookie_domain.trim())
+        ? response.jwt_cookie_domain.trim()
+        : (typeof stfConfig?.jwt_cookie_domain === 'string' && stfConfig.jwt_cookie_domain.trim())
+        ? stfConfig.jwt_cookie_domain.trim()
+        : '';
+
     const session = {
       nodeId: node.id,
       launchUrl: finalUrl,
@@ -812,6 +1060,11 @@ async function handleOpenInStf(node, trigger) {
         ? stfConfig.token.trim()
         : null,
       jwtQueryParam: typeof queryParam === 'string' && queryParam.trim() ? queryParam.trim() : '',
+      jwtCookieName: cookieName,
+      jwtCookiePath: cookiePath,
+      jwtCookieDomain: cookieDomain,
+      targetHostname: parsedLaunchUrl ? parsedLaunchUrl.hostname : undefined,
+      targetProtocol: parsedLaunchUrl ? parsedLaunchUrl.protocol : undefined,
     };
 
     markNodeBusyLocally(node.id);
@@ -1134,9 +1387,17 @@ function triggerStopUsingInStf(session) {
 }
 
 function setActiveStfSession(session) {
-  activeStfSession = session || null;
+  const previousSession = activeStfSession;
+  const nextSession = session || null;
+
+  if (previousSession && previousSession !== nextSession) {
+    clearStfSessionAuth(previousSession);
+  }
+
+  activeStfSession = nextSession;
 
   if (activeStfSession) {
+    applyStfSessionAuth(activeStfSession);
     updateStfSessionUi(activeStfSession);
   } else {
     hideStfSessionUi();
@@ -2278,5 +2539,6 @@ setInterval(() => loadNodes(), REFRESH_INTERVAL);
 window.addEventListener('beforeunload', () => {
   if (activeStfSession?.nodeId) {
     sendStfReleaseKeepalive(activeStfSession.nodeId);
+    clearStfSessionAuth(activeStfSession);
   }
 });

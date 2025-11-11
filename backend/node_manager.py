@@ -760,9 +760,16 @@ async def open_stf_session(node_id: str, request: StfSessionRequest):
 
     expires_at_dt = datetime.fromtimestamp(expires_at, tz=timezone.utc)
     udid = node.get("udid")
+    # STF serves its UI from a single-page application where the hash fragment
+    # encodes the device control route (e.g. ``/#/control/<udid>``). Because the
+    # hash is never included in HTTP requests, cookies scoped to ``/control`` or
+    # ``/control/<udid>`` are not returned to the server. Always default the
+    # cookie path to the root so the JWT is available for the iframe load.
     default_cookie_path = "/"
-    if isinstance(udid, str) and udid.strip():
-        default_cookie_path = f"/control/{udid.strip()}"
+
+    config_cookie_path = stf_config.get("jwt_cookie_path") if isinstance(stf_config, dict) else None
+    if isinstance(config_cookie_path, str) and config_cookie_path.strip():
+        default_cookie_path = config_cookie_path.strip()
 
     cached_jwt = await get_cached_stf_jwt(redis_client, node_id)
     jwt_token: Optional[str] = None
