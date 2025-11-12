@@ -10,7 +10,12 @@
   <body>
     <header class="page-header">
       <div class="branding">
-        <h1>device proxy nodes</h1>
+        <p class="eyebrow">Operations</p>
+        <h1>Device proxy dashboard</h1>
+        <p class="branding__subtitle">
+          Monitor device availability, understand capacity at a glance, and jump into action when a
+          node needs attention.
+        </p>
       </div>
       <div class="page-header__meta" aria-live="polite">
         <span class="last-updated-label">Last updated</span>
@@ -35,20 +40,32 @@
     <main class="page-content">
       <section class="summary" aria-label="Node summary and filters">
         <div class="summary-card card" data-status="total">
-          <span class="summary-label">Total</span>
-          <span id="summary-total" class="summary-value">0</span>
+          <div class="summary-card__icon" aria-hidden="true">🗂️</div>
+          <div class="summary-card__content">
+            <span class="summary-label">Total</span>
+            <span id="summary-total" class="summary-value">0</span>
+          </div>
         </div>
         <div class="summary-card card" data-status="online">
-          <span class="summary-label">Online</span>
-          <span id="summary-online" class="summary-value">0</span>
+          <div class="summary-card__icon" aria-hidden="true">✅</div>
+          <div class="summary-card__content">
+            <span class="summary-label">Online</span>
+            <span id="summary-online" class="summary-value">0</span>
+          </div>
         </div>
         <div class="summary-card card" data-status="busy">
-          <span class="summary-label">Busy</span>
-          <span id="summary-busy" class="summary-value">0</span>
+          <div class="summary-card__icon" aria-hidden="true">⏱️</div>
+          <div class="summary-card__content">
+            <span class="summary-label">Busy</span>
+            <span id="summary-busy" class="summary-value">0</span>
+          </div>
         </div>
         <div class="summary-card card" data-status="offline">
-          <span class="summary-label">Offline</span>
-          <span id="summary-offline" class="summary-value">0</span>
+          <div class="summary-card__icon" aria-hidden="true">⚠️</div>
+          <div class="summary-card__content">
+            <span class="summary-label">Offline</span>
+            <span id="summary-offline" class="summary-value">0</span>
+          </div>
         </div>
         <div class="summary-card card summary-card--filters" aria-label="Node filters">
           <div class="filters-dropdown">
@@ -111,7 +128,11 @@
 
       <section class="table-section card" aria-label="Node details">
         <div class="table-header">
-          <h2>Nodes</h2>
+          <div>
+            <p class="eyebrow">Inventory</p>
+            <h2>Nodes</h2>
+            <p class="table-subtitle">Live node availability with quick access to streams and STF sessions.</p>
+          </div>
         </div>
         <div class="table-wrapper">
           <div
@@ -128,16 +149,18 @@
             <thead>
               <tr>
                 <th scope="col">Node</th>
+                <th scope="col">Device</th>
+                <th scope="col">Platform</th>
                 <th scope="col">Sessions</th>
                 <th scope="col">Status</th>
                 <th scope="col" class="actions-column">Actions</th>
               </tr>
             </thead>
-            <tbody>
-              <tr>
-                <td colspan="4" class="empty-state">Loading nodes...</td>
-              </tr>
-            </tbody>
+              <tbody>
+                <tr>
+                  <td colspan="6" class="empty-state">Loading nodes...</td>
+                </tr>
+              </tbody>
           </table>
         </div>
         <div id="pagination" class="pagination" hidden>
