@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -63,8 +64,23 @@ async def serve_stream_embed():
     return FileResponse(_get_embed_path())
 
 
+def _monitor_enabled() -> bool:
+    value = os.getenv("ENABLE_IN_PROCESS_MONITOR")
+    if value is None:
+        return False
+
+    value = value.strip().lower()
+    return value in {"1", "true", "yes", "y", "on"}
+
+
 @app.on_event("startup")
 async def startup_event():
     await load_nodes_from_csv()
-    logger.info("Starting background monitor task")
-    asyncio.create_task(start_monitor())
+
+    if _monitor_enabled():
+        logger.info("Starting in-process monitor task")
+        asyncio.create_task(start_monitor())
+    else:
+        logger.info(
+            "In-process monitor disabled; run `python -m backend.worker` to start the worker service"
+        )

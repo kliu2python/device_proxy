@@ -2,6 +2,24 @@
 
 This project provides a lightweight API and front-end to view and control a pool of automation devices. It exposes endpoints for registering nodes, monitoring availability, and opening devices in STF (Smartphone Test Farm).
 
+## Services
+
+The backend is split into two processes so HTTP traffic and background work can
+scale independently:
+
+* **API service** – start with ``uvicorn backend.main:app``. It provides the
+  HTTP endpoints and serves the UI. By default it no longer launches the
+  monitor loop; for single-process development you can set
+  ``ENABLE_IN_PROCESS_MONITOR=true`` to restore the previous behaviour.
+* **Worker service** – start with ``python -m backend.worker``. It runs the
+  monitor logic from ``backend.monitor`` (device capability sync, STF
+  reservation expiry, and node health checks). Run as many workers as needed.
+
+Both services use Redis for shared state. Ensure Redis is reachable before
+starting either service. The worker preloads the CSV nodes by default; set
+``WORKER_PRELOAD_CSV=false`` to skip that step when nodes are already
+registered.
+
 ## Enabling the "Open in STF" action
 
 The UI only enables the **Open in STF** button for devices that have sufficient STF configuration. You can provide this configuration globally via environment variables or on a per-node basis via the node resources JSON.
