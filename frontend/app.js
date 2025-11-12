@@ -53,7 +53,6 @@ const NODE_FORM_FIELD_NAMES = [
   'device_name',
   'resources',
 ];
-const DEVICE_SESSION_META_KEYS = ['version', 'periphery', 'resolution', 'density', 'dpi'];
 const adminToolsTrigger = document.getElementById('admin-tools-trigger');
 const adminLoginForm = document.getElementById('admin-login-form');
 const adminUsernameInput = document.getElementById('admin-username');
@@ -413,19 +412,6 @@ function normaliseText(value) {
   return value.trim().toLowerCase();
 }
 
-function toTitleCase(value) {
-  if (typeof value !== 'string') {
-    return '';
-  }
-
-  return value
-    .trim()
-    .split(/[\s_-]+/)
-    .filter(Boolean)
-    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-    .join(' ');
-}
-
 function getNodeTags(node) {
   const tags = new Set();
   const push = (value) => {
@@ -453,100 +439,6 @@ function getNodeTags(node) {
   }
 
   return tags;
-}
-
-function formatPlatformName(value) {
-  const label = toTitleCase(value);
-  return label || 'Unknown';
-}
-
-function formatPlatformVersion(value) {
-  if (typeof value !== 'string' && typeof value !== 'number') {
-    return '';
-  }
-
-  const stringValue = String(value).trim();
-  return stringValue;
-}
-
-function buildNodeConnectionLabel(node) {
-  if (!node || typeof node !== 'object') {
-    return 'Not reported';
-  }
-
-  const parts = [];
-  const host = typeof node.host === 'string' ? node.host.trim() : '';
-  const port = Number(node.port);
-  if (host) {
-    const hostLabel = Number.isFinite(port) && port > 0 ? `${host}:${port}` : host;
-    parts.push(hostLabel);
-  }
-
-  const protocol = typeof node.protocol === 'string' ? node.protocol.trim().toUpperCase() : '';
-  if (protocol) {
-    parts.push(protocol);
-  }
-
-  const path = typeof node.path === 'string' ? node.path.trim() : '';
-  if (path) {
-    parts.push(path.startsWith('/') ? path : `/${path}`);
-  }
-
-  const type = typeof node.type === 'string' ? node.type.trim() : '';
-  if (type) {
-    parts.push(type);
-  }
-
-  return parts.filter(Boolean).join(' • ') || 'Not reported';
-}
-
-function buildDeviceMeta(node) {
-  if (!node || typeof node !== 'object') {
-    return '—';
-  }
-
-  const metaParts = [];
-  const udid = typeof node.udid === 'string' ? node.udid.trim() : '';
-  if (udid) {
-    metaParts.push(udid);
-  }
-
-  const sessionData = node.resources?.session_data;
-  if (sessionData && typeof sessionData === 'object') {
-    for (const key of DEVICE_SESSION_META_KEYS) {
-      const rawValue = sessionData[key];
-      const value = typeof rawValue === 'string' ? rawValue.trim() : '';
-      if (value) {
-        metaParts.push(value);
-      }
-    }
-  }
-
-  return metaParts.join(' • ') || '—';
-}
-
-function buildPlatformTagMarkup(node) {
-  const tags = Array.from(getNodeTags(node));
-  if (!tags.length) {
-    return '';
-  }
-
-  const formattedTags = [];
-  for (const tag of tags) {
-    const label = toTitleCase(tag);
-    if (label && !formattedTags.includes(label)) {
-      formattedTags.push(label);
-    }
-    if (formattedTags.length >= 4) {
-      break;
-    }
-  }
-
-  if (!formattedTags.length) {
-    return '';
-  }
-
-  return formattedTags.map((tag) => `<span class="tag">${tag}</span>`).join('');
 }
 
 function getNodeStfConfig(node) {
@@ -2319,7 +2211,7 @@ function renderRows(nodes) {
     const emptyMessage = filtersAreActive()
       ? 'No nodes match the selected filters.'
       : 'No nodes registered yet.';
-    tableBody.innerHTML = `<tr><td colspan="6" class="empty-state">${emptyMessage}</td></tr>`;
+    tableBody.innerHTML = `<tr><td colspan="4" class="empty-state">${emptyMessage}</td></tr>`;
     updatePaginationControls({ totalItems: 0, totalPages: 1 });
     return;
   }
@@ -2351,14 +2243,6 @@ function renderRows(nodes) {
     const status = deriveStatus(node);
     const isDetailsAvailable = status === 'online';
 
-    const nodeLabel = node.id || 'Unknown node';
-    const nodeMeta = buildNodeConnectionLabel(node);
-    const deviceName = node.device_name?.trim() ? node.device_name.trim() : 'Unassigned device';
-    const deviceMeta = buildDeviceMeta(node);
-    const platformName = formatPlatformName(node.platform);
-    const platformVersion = formatPlatformVersion(node.platform_version);
-    const platformTagsMarkup = buildPlatformTagMarkup(node);
-
     const actions = [
       `<button class="action-button" data-show="${node.id}">Show details</button>`,
       `<button class="action-button" data-open-stream="${node.id}">View stream</button>`,
@@ -2372,19 +2256,8 @@ function renderRows(nodes) {
 
     tr.innerHTML = `
       <td>
-        <div class="node-name">${nodeLabel}</div>
-        <div class="node-meta">${nodeMeta}</div>
-      </td>
-      <td>
-        <div class="device-name">${deviceName}</div>
-        <div class="device-meta">${deviceMeta}</div>
-      </td>
-      <td>
-        <div class="platform-line">
-          <span class="platform-name">${platformName}</span>
-          ${platformVersion ? `<span class="platform-version">v${platformVersion}</span>` : ''}
-        </div>
-        ${platformTagsMarkup ? `<div class="platform-tags">${platformTagsMarkup}</div>` : ''}
+        <div class="node-name">${node.id || 'Unknown node'}</div>
+        <div class="node-meta">${node.platform || ''}</div>
       </td>
       <td>${sessionsLabel}</td>
       <td>
@@ -2507,7 +2380,7 @@ async function loadNodes({ userInitiated = false } = {}) {
   const shouldShowOverlay = !isInitialLoad || userInitiated;
 
   if (!hasExistingRows && isInitialLoad) {
-    tableBody.innerHTML = '<tr><td colspan="6" class="empty-state">Loading nodes...</td></tr>';
+    tableBody.innerHTML = '<tr><td colspan="4" class="empty-state">Loading nodes...</td></tr>';
   } else if (shouldShowOverlay) {
     setTableLoading(true);
   }
@@ -2560,7 +2433,7 @@ async function loadNodes({ userInitiated = false } = {}) {
     console.error('Failed to load nodes', error);
     if (!hasExistingRows) {
       tableBody.innerHTML =
-        '<tr><td colspan="6" class="empty-state">Unable to load nodes. Please try again.</td></tr>';
+        '<tr><td colspan="4" class="empty-state">Unable to load nodes. Please try again.</td></tr>';
     }
     showToast('Failed to load nodes');
   } finally {
