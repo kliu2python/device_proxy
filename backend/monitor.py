@@ -9,12 +9,16 @@ from urllib.parse import urlparse
 import httpx
 import redis.asyncio as aioredis
 
-from backend.session_state import release_expired_stf_reservations
+from backend.session_state import (
+    release_expired_stf_reservations,
+    release_inactive_sessions,
+)
 
 logger = logging.getLogger(__name__)
 
 DEVICE_CAPS_URL = os.getenv("DEVICE_CAPS_URL", "http://10.160.13.110:8099/caps")
 DEVICE_CAPS_TIMEOUT = float(os.getenv("DEVICE_CAPS_TIMEOUT", "5"))
+SESSION_IDLE_TIMEOUT_SECONDS = int(os.getenv("SESSION_IDLE_TIMEOUT_SECONDS", "180"))
 
 
 def _as_dict(value) -> Dict:
@@ -290,4 +294,14 @@ async def start_monitor():
             node = json.loads(node_data)
             await check_node_status(node_id, node, redis_client)
         logger.debug("Completed monitor cycle for %d nodes", len(nodes))
+
+        try:
+            reclaimed = await release_inactive_sessions(
+                redis_client, idle_timeout=SESSION_IDLE_TIMEOUT_SECONDS
+            )
+            if reclaimed:
+                logger.info("Released %d inactive sessions", reclaimed)
+        except Exception:
+            logger.exception("Failed to release inactive sessions")
+
         await asyncio.sleep(10)
