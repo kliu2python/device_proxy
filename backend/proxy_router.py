@@ -13,6 +13,7 @@ from backend.session_state import (
     cleanup_session,
     reserve_node_session,
     release_node_session,
+    touch_session_activity,
 )
 
 router = APIRouter()
@@ -639,6 +640,7 @@ async def create_session(request: Request):
         if session_id:
             await redis_client.hset(SESSION_MAP_KEY, session_id, node_id)
             logger.info("Created session %s on node %s", session_id, node_id)
+            await touch_session_activity(redis_client, session_id)
         else:
             if reservation_holder:
                 await release_node_session(redis_client, reservation_holder)
@@ -659,6 +661,8 @@ async def proxy_generic(request: Request, path: str):
         _,
         _,
     ) = await forward_request(request, path)
+    if session_id:
+        await touch_session_activity(redis_client, session_id)
     if request.method == "DELETE" and session_id and 200 <= status < 405 :
         await cleanup_session(redis_client, session_id, node_id)
         logger.info("Session %s terminated with status %s", session_id, status)
@@ -684,6 +688,7 @@ async def selenium_create_session(request: Request):
         session_id = _extract_session_id_from_response(content)
         if session_id:
             await redis_client.hset(SESSION_MAP_KEY, session_id, node_id)
+            await touch_session_activity(redis_client, session_id)
         else:
             if reservation_holder:
                 await release_node_session(redis_client, reservation_holder)

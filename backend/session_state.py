@@ -23,6 +23,7 @@ from typing import Dict, Optional
 logger = logging.getLogger(__name__)
 
 SESSION_MAP_KEY = "session_map"
+SESSION_ACTIVITY_KEY = "session_last_activity"
 NODE_SESSION_COUNTS_KEY = "node_session_counts"
 STF_RESERVATIONS_KEY = "stf_reservations"
 STF_JWT_CACHE_PREFIX = "stf_jwt:"
@@ -100,8 +101,52 @@ async def cleanup_session(redis_client, session_id: str, node_id: Optional[str])
 
     logger.info("Cleaning up session %s for node %s", session_id, node_id)
     await redis_client.hdel(SESSION_MAP_KEY, session_id)
+    await redis_client.hdel(SESSION_ACTIVITY_KEY, session_id)
     if node_id:
         await release_node_session(redis_client, node_id)
+
+
+async def touch_session_activity(redis_client, session_id: str) -> None:
+    """Record the most recent activity timestamp for ``session_id``."""
+
+    if not session_id:
+        return
+
+    await redis_client.hset(
+        SESSION_ACTIVITY_KEY, session_id, int(time.time())
+    )
+
+
+async def release_inactive_sessions(redis_client, *, idle_timeout: int) -> int:
+    """Release sessions that have been idle for longer than ``idle_timeout``."""
+
+    if idle_timeout <= 0:
+        return 0
+
+    last_activity = await redis_client.hgetall(SESSION_ACTIVITY_KEY)
+    if not last_activity:
+        return 0
+
+    now = int(time.time())
+    cleaned = 0
+    for session_id, last_seen_raw in last_activity.items():
+        try:
+            last_seen = int(last_seen_raw)
+        except (TypeError, ValueError):
+            await redis_client.hdel(SESSION_ACTIVITY_KEY, session_id)
+            continue
+
+        if now - last_seen < idle_timeout:
+            continue
+
+        node_id = await redis_client.hget(SESSION_MAP_KEY, session_id)
+        logger.warning(
+            "Session %s idle for %ds; releasing reservation", session_id, now - last_seen
+        )
+        await cleanup_session(redis_client, session_id, node_id)
+        cleaned += 1
+
+    return cleaned
 
 
 async def _remove_stf_reservation(redis_client, node_id: str) -> bool:

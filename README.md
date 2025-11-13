@@ -13,7 +13,10 @@ scale independently:
   ``ENABLE_IN_PROCESS_MONITOR=true`` to restore the previous behaviour.
 * **Worker service** – start with ``python -m backend.worker``. It runs the
   monitor logic from ``backend.monitor`` (device capability sync, STF
-  reservation expiry, and node health checks). Run as many workers as needed.
+  reservation expiry, idle-session cleanup, and node health checks). Run as
+  many workers as needed. The idle-session reaper considers a session inactive
+  when it has not proxied any requests for three minutes; adjust the threshold
+  with the ``SESSION_IDLE_TIMEOUT_SECONDS`` environment variable when needed.
 
 Both services use Redis for shared state. Ensure Redis is reachable before
 starting either service. The worker preloads the CSV nodes by default; set
