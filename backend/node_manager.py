@@ -35,7 +35,7 @@ NODE_SESSION_COUNTS_KEY = "node_session_counts"
 ADMIN_USERNAME_ENV_VAR = "ADMIN_USERNAME"
 ADMIN_PASSWORD_ENV_VAR = "ADMIN_PASSWORD"
 
-JWT_EMAIL = "proxy@abc.com"
+JWT_EMAIL = "proxy@fortinet.com"
 JWT_NAME = "proxy"
 JWT_SECRET = "fortinet"
 CSV_TEMPLATE_HEADERS = [
