@@ -4,9 +4,13 @@
   const label = (params.get('label') || params.get('title') || '').trim();
   const subtitle = (params.get('subtitle') || params.get('description') || '').trim();
   const streamImage = document.getElementById('embed-stream');
+  const streamCanvas = document.getElementById('embed-stream-canvas');
   const placeholder = document.getElementById('embed-placeholder');
   const labelEl = document.getElementById('embed-label');
   const subtitleEl = document.getElementById('embed-subtitle');
+
+  let ws = null;
+  let canvasCtx = null;
 
   function pickFirstValue(values) {
     return values.find((value) => value && value.trim());
@@ -26,11 +30,80 @@
     if (message) {
       const messageNode = placeholder.querySelector('.embed-placeholder__message');
       if (messageNode) {
-        messageNode.innerHTML = message;
+        messageNode.textContent = message;
       }
     }
     placeholder.hidden = false;
     streamImage.hidden = true;
+    streamCanvas.style.display = 'none';
+  }
+
+  function hideAll() {
+    placeholder.hidden = true;
+    streamImage.hidden = true;
+    streamCanvas.style.display = 'none';
+  }
+
+  function isWebSocketUrl(url) {
+    return url.startsWith('ws://') || url.startsWith('wss://');
+  }
+
+  function connectWebSocket(url) {
+    hideAll();
+    showPlaceholder('Connecting to stream...');
+
+    ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+      placeholder.hidden = true;
+      streamCanvas.style.display = 'block';
+      canvasCtx = streamCanvas.getContext('2d');
+    };
+
+    ws.onmessage = (event) => {
+      if (event.data instanceof ArrayBuffer) {
+        const blob = new Blob([event.data], { type: 'image/jpeg' });
+        const urlCreator = window.URL || window.webkitURL;
+        const imageUrl = urlCreator.createObjectURL(blob);
+
+        const img = new Image();
+        img.onload = () => {
+          if (canvasCtx) {
+            // Auto-resize canvas to match image dimensions
+            if (streamCanvas.width !== img.width || streamCanvas.height !== img.height) {
+              streamCanvas.width = img.width;
+              streamCanvas.height = img.height;
+            }
+            canvasCtx.drawImage(img, 0, 0);
+          }
+          urlCreator.revokeObjectURL(imageUrl);
+        };
+        img.src = imageUrl;
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error);
+      showPlaceholder('WebSocket connection error. Please check the stream URL.');
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket closed');
+      showPlaceholder('Stream connection closed.');
+    };
+  }
+
+  function loadHttpStream(url) {
+    hideAll();
+    streamImage.src = url;
+    streamImage.hidden = false;
+    streamImage.addEventListener('error', () => {
+      showPlaceholder(
+        'We were unable to load the requested stream. Please check that the URL is reachable.'
+      );
+    });
   }
 
   if (label) {
@@ -48,19 +121,19 @@
 
   if (!srcToUse) {
     showPlaceholder('No stream URL was provided.');
+  } else if (isWebSocketUrl(srcToUse)) {
+    connectWebSocket(srcToUse);
   } else {
-    streamImage.src = srcToUse;
-    streamImage.hidden = false;
-    streamImage.addEventListener('error', () => {
-      showPlaceholder(
-        'We were unable to load the requested stream. Please check that the URL is reachable.'
-      );
-    });
+    loadHttpStream(srcToUse);
   }
 
   const closeTriggers = document.querySelectorAll('[data-close]');
   closeTriggers.forEach((trigger) => {
     trigger.addEventListener('click', () => {
+      if (ws) {
+        ws.close();
+      }
+
       if (window.history.length > 1) {
         window.history.back();
         return;
