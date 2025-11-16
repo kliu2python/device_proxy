@@ -628,6 +628,7 @@ def generate_csv_template() -> str:
             "resources": json.dumps(
                 {
                     "session_data": {"device": "metadata"},
+                    "video_ws_url": "ws://10.160.13.110:8099/stream/ios/00008020-001C2D113C88002E",
                     "stf": {
                         "base_url": "https://stf.example.com",
                         "control_path_template": "/#!/control/{udid}",

@@ -523,6 +523,16 @@ function deriveStreamUrl(node) {
     return null;
   }
 
+  // First, try to get video_ws_url from node resources
+  const resources = node.resources;
+  if (resources && typeof resources === 'object') {
+    const videoWsUrl = resources.video_ws_url;
+    if (typeof videoWsUrl === 'string' && videoWsUrl.trim()) {
+      return videoWsUrl.trim();
+    }
+  }
+
+  // Fallback to legacy stream URL construction
   const udid = typeof node.udid === 'string' ? node.udid.trim() : '';
   if (!udid) {
     return null;
