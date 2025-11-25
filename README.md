@@ -68,3 +68,29 @@ The updated CSV template that you can download from `/nodes/template` now includ
 * The browser must allow popups for the Device Proxy UI so the STF tab can be opened successfully.
 
 Once the configuration is in place, reload the UI. Eligible devices will display the **Open in STF** button, and selecting it will initiate a reservation and open the STF control interface in a new tab.
+
+## SSL/HTTPS Configuration
+
+The Device Proxy can be configured to run with SSL/HTTPS encryption on port 443.
+
+### Quick Setup
+
+Device Proxy runs on HTTPS port 443 only (no port 80):
+- Device Proxy: `https://devicehub.qa.fortinet-us.com`
+- STF Server: Runs independently on `http://10.160.13.118/stf`
+
+### Documentation
+
+- **[SIMPLE_SSL_SETUP.md](SIMPLE_SSL_SETUP.md)** - Complete guide for SSL configuration on port 443, including:
+  - Nginx reverse proxy setup
+  - SSL certificate installation
+  - Docker deployment steps
+  - Troubleshooting guide
+
+- **[nginx-reverse-proxy.conf](nginx-reverse-proxy.conf)** - Ready-to-use Nginx configuration
+
+The application Docker containers run on internal ports (8080 for frontend, 8090 for backend), and the main Nginx reverse proxy handles SSL termination on port 443.
+
+### Advanced: Multiple Services on Port 443
+
+If you need both Device Proxy and STF on the same port 443, see **[SSL_AND_STF_SETUP.md](SSL_AND_STF_SETUP.md)** for path-based or hostname-based routing options.
