@@ -73,23 +73,32 @@ Once the configuration is in place, reload the UI. Eligible devices will display
 
 The Device Proxy can be configured to run with SSL/HTTPS encryption on port 443.
 
-### Quick Setup
+### Quick Setup (Docker-Only - Recommended)
 
-Device Proxy runs on HTTPS port 443 only (no port 80):
-- Device Proxy: `https://devicehub.qa.fortinet-us.com`
-- STF Server: Runs independently on `http://10.160.13.118/stf`
+**No host Nginx installation required!** Everything runs in Docker:
 
-### Documentation
+1. Place SSL certificates in `ssl/` directory:
+   ```bash
+   mkdir -p ssl
+   cp your-cert.crt ssl/cert.crt
+   cp your-key.key ssl/cert.key
+   ```
 
-- **[SIMPLE_SSL_SETUP.md](SIMPLE_SSL_SETUP.md)** - Complete guide for SSL configuration on port 443, including:
-  - Nginx reverse proxy setup
-  - SSL certificate installation
-  - Docker deployment steps
-  - Troubleshooting guide
+2. Start containers:
+   ```bash
+   docker compose up -d --build
+   ```
 
+3. Access: `https://devicehub.qa.fortinet-us.com`
+
+**See [DOCKER_SSL_SETUP.md](DOCKER_SSL_SETUP.md)** for complete instructions, troubleshooting, and how to create self-signed certificates for testing.
+
+### Alternative: Host Nginx Setup
+
+If you prefer using Nginx on the host machine instead of Docker:
+
+- **[SIMPLE_SSL_SETUP.md](SIMPLE_SSL_SETUP.md)** - Nginx reverse proxy on host (requires installing Nginx)
 - **[nginx-reverse-proxy.conf](nginx-reverse-proxy.conf)** - Ready-to-use Nginx configuration
-
-The application Docker containers run on internal ports (8080 for frontend, 8090 for backend), and the main Nginx reverse proxy handles SSL termination on port 443.
 
 ### Advanced: Multiple Services on Port 443
 
