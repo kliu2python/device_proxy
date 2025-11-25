@@ -11,4 +11,4 @@ COPY embed.js /usr/share/nginx/html/static/embed.js
 COPY styles.css /usr/share/nginx/html/static/styles.css
 COPY embed.css /usr/share/nginx/html/static/embed.css
 
-EXPOSE 80
+EXPOSE 443
