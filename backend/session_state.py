@@ -27,6 +27,9 @@ SESSION_ACTIVITY_KEY = "session_last_activity"
 NODE_SESSION_COUNTS_KEY = "node_session_counts"
 STF_RESERVATIONS_KEY = "stf_reservations"
 STF_JWT_CACHE_PREFIX = "stf_jwt:"
+STF_OWNERS_KEY = "stf_owners"  # node_id -> username for STF reservations
+SESSION_OWNERS_KEY = "session_owners"  # session_id -> username
+USER_SESSIONS_KEY = "user_sessions"  # username -> set of session_ids
 
 
 async def sync_node_session_metadata(
@@ -96,12 +99,95 @@ async def release_node_session(redis_client, node_id: str) -> int:
     return new_count
 
 
+async def set_session_owner(redis_client, session_id: str, username: str) -> None:
+    """Associate a session with its owner username."""
+
+    if not session_id or not username:
+        return
+
+    # Store session -> username mapping
+    await redis_client.hset(SESSION_OWNERS_KEY, session_id, username)
+
+    # Add session to user's session set
+    user_sessions_key = f"{USER_SESSIONS_KEY}:{username}"
+    await redis_client.sadd(user_sessions_key, session_id)
+
+    logger.info("Set session %s owner to %s", session_id, username)
+
+
+async def get_session_owner(redis_client, session_id: str) -> Optional[str]:
+    """Get the username that owns a given session."""
+
+    if not session_id:
+        return None
+
+    username = await redis_client.hget(SESSION_OWNERS_KEY, session_id)
+    return username.decode() if isinstance(username, bytes) else username
+
+
+async def get_user_sessions(redis_client, username: str) -> list[str]:
+    """Get all active session IDs for a given username."""
+
+    if not username:
+        return []
+
+    user_sessions_key = f"{USER_SESSIONS_KEY}:{username}"
+    session_ids = await redis_client.smembers(user_sessions_key)
+
+    # Convert bytes to strings if needed
+    return [
+        sid.decode() if isinstance(sid, bytes) else sid
+        for sid in session_ids
+    ]
+
+
+async def get_all_sessions(redis_client) -> dict[str, dict]:
+    """Get all active sessions with their metadata."""
+
+    all_sessions = {}
+    session_map = await redis_client.hgetall(SESSION_MAP_KEY)
+
+    for session_id_raw, node_id_raw in session_map.items():
+        session_id = session_id_raw.decode() if isinstance(session_id_raw, bytes) else session_id_raw
+        node_id = node_id_raw.decode() if isinstance(node_id_raw, bytes) else node_id_raw
+
+        # Get owner
+        owner = await get_session_owner(redis_client, session_id)
+
+        # Get last activity
+        last_activity_raw = await redis_client.hget(SESSION_ACTIVITY_KEY, session_id)
+        try:
+            last_activity = int(last_activity_raw) if last_activity_raw else None
+        except (TypeError, ValueError):
+            last_activity = None
+
+        all_sessions[session_id] = {
+            "session_id": session_id,
+            "node_id": node_id,
+            "owner": owner or "unknown",
+            "last_activity": last_activity,
+        }
+
+    return all_sessions
+
+
 async def cleanup_session(redis_client, session_id: str, node_id: Optional[str]):
     """Remove session metadata and release any associated reservation."""
 
     logger.info("Cleaning up session %s for node %s", session_id, node_id)
+
+    # Get owner before cleanup for proper user sessions removal
+    owner = await get_session_owner(redis_client, session_id)
+
     await redis_client.hdel(SESSION_MAP_KEY, session_id)
     await redis_client.hdel(SESSION_ACTIVITY_KEY, session_id)
+    await redis_client.hdel(SESSION_OWNERS_KEY, session_id)
+
+    # Remove from user's session set
+    if owner:
+        user_sessions_key = f"{USER_SESSIONS_KEY}:{owner}"
+        await redis_client.srem(user_sessions_key, session_id)
+
     if node_id:
         await release_node_session(redis_client, node_id)
 
@@ -223,11 +309,83 @@ async def clear_cached_stf_jwt(redis_client, node_id: str) -> None:
     await redis_client.delete(_stf_jwt_cache_key(node_id))
 
 
+async def set_stf_owner(redis_client, node_id: str, username: str) -> None:
+    """Associate an STF reservation with its owner username."""
+
+    if not node_id or not username:
+        return
+
+    await redis_client.hset(STF_OWNERS_KEY, node_id, username)
+    logger.info("Set STF reservation %s owner to %s", node_id, username)
+
+
+async def get_stf_owner(redis_client, node_id: str) -> Optional[str]:
+    """Get the username that owns an STF reservation."""
+
+    if not node_id:
+        return None
+
+    username = await redis_client.hget(STF_OWNERS_KEY, node_id)
+    return username.decode() if isinstance(username, bytes) else username
+
+
+async def get_user_stf_reservations(redis_client, username: str) -> list[dict]:
+    """Get all active STF reservations for a given username."""
+
+    if not username:
+        return []
+
+    all_reservations = await redis_client.hgetall(STF_RESERVATIONS_KEY)
+    user_reservations = []
+
+    for node_id_raw, expires_at_raw in all_reservations.items():
+        node_id = node_id_raw.decode() if isinstance(node_id_raw, bytes) else node_id_raw
+        owner = await get_stf_owner(redis_client, node_id)
+
+        if owner == username:
+            try:
+                expires_at = int(expires_at_raw)
+            except (TypeError, ValueError):
+                expires_at = None
+
+            user_reservations.append({
+                "node_id": node_id,
+                "expires_at": expires_at,
+            })
+
+    return user_reservations
+
+
+async def get_all_stf_reservations(redis_client) -> list[dict]:
+    """Get all active STF reservations with owner information."""
+
+    all_reservations = await redis_client.hgetall(STF_RESERVATIONS_KEY)
+    result = []
+
+    for node_id_raw, expires_at_raw in all_reservations.items():
+        node_id = node_id_raw.decode() if isinstance(node_id_raw, bytes) else node_id_raw
+        owner = await get_stf_owner(redis_client, node_id)
+
+        try:
+            expires_at = int(expires_at_raw)
+        except (TypeError, ValueError):
+            expires_at = None
+
+        result.append({
+            "node_id": node_id,
+            "expires_at": expires_at,
+            "owner": owner or "unknown",
+        })
+
+    return result
+
+
 async def create_stf_reservation(
     redis_client,
     node_id: str,
     node: Dict,
     ttl_seconds: int,
+    username: Optional[str] = None,
 ) -> Optional[int]:
     """Reserve ``node`` for manual STF usage for ``ttl_seconds`` seconds.
 
@@ -257,8 +415,14 @@ async def create_stf_reservation(
     ttl = max(int(ttl_seconds or 0), 1)
     expires_at = now + ttl
     await redis_client.hset(STF_RESERVATIONS_KEY, node_id, expires_at)
+
+    # Set owner if provided
+    if username:
+        await set_stf_owner(redis_client, node_id, username)
+
     logger.info(
-        "Reserved node %s for STF usage until %s (ttl=%s)", node_id, expires_at, ttl
+        "Reserved node %s for STF usage until %s (ttl=%s, owner=%s)",
+        node_id, expires_at, ttl, username or "unknown"
     )
     return expires_at
 
@@ -272,6 +436,7 @@ async def release_stf_reservation(redis_client, node_id: str) -> bool:
 
     await release_node_session(redis_client, node_id)
     await clear_cached_stf_jwt(redis_client, node_id)
+    await redis_client.hdel(STF_OWNERS_KEY, node_id)
     logger.info("Released STF reservation for node %s", node_id)
     return True
 
@@ -300,6 +465,7 @@ async def release_expired_stf_reservations(redis_client, *, now: Optional[int] =
         await _remove_stf_reservation(redis_client, node_id)
         await release_node_session(redis_client, node_id)
         await clear_cached_stf_jwt(redis_client, node_id)
+        await redis_client.hdel(STF_OWNERS_KEY, node_id)
         logger.info(
             "Automatically released expired STF reservation for node %s", node_id
         )
