@@ -12,8 +12,8 @@ services:
     depends_on:
       - proxy
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./ssl/cert.crt:/etc/nginx/ssl/cert.crt:ro
-      - ./ssl/cert.key:/etc/nginx/ssl/cert.key:ro
+      - "8080:80"
+    # SSL is handled by the main reverse proxy, not by this container
+    # volumes:
+    #   - ./ssl/cert.crt:/etc/nginx/ssl/cert.crt:ro
+    #   - ./ssl/cert.key:/etc/nginx/ssl/cert.key:ro
