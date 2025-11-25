@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request as FastAPIRequest
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -29,6 +29,22 @@ router = APIRouter()
 redis_client = aioredis.from_url("redis://10.160.13.16:6379/0", decode_responses=True)
 
 logger = logging.getLogger(__name__)
+
+
+def _get_username_from_request(request: FastAPIRequest) -> str:
+    """Extract username from request headers or use default."""
+
+    # Try various header formats
+    username = (
+        request.headers.get("X-Username")
+        or request.headers.get("X-User")
+        or request.headers.get("Username")
+        or request.headers.get("User")
+        or "anonymous"
+    )
+
+    return username.strip()
+
 
 NODE_RESOURCES_CSV = Path(__file__).resolve().parent / "node_resources.csv"
 NODE_SESSION_COUNTS_KEY = "node_session_counts"
@@ -744,16 +760,25 @@ async def node_status(node_id: str):
 
 
 @router.post("/nodes/{node_id}/stf/session")
-async def open_stf_session(node_id: str, request: StfSessionRequest):
+async def open_stf_session(
+    node_id: str,
+    body: StfSessionRequest,
+    request: FastAPIRequest,
+):
     node = await _fetch_node(node_id)
     stf_config = _ensure_stf_config(node)
 
     if not _node_is_available(node):
         raise HTTPException(status_code=409, detail="Node is not available for STF access")
 
-    ttl_seconds = _resolve_stf_session_ttl(stf_config, request)
+    ttl_seconds = _resolve_stf_session_ttl(stf_config, body)
 
-    expires_at = await create_stf_reservation(redis_client, node_id, node, ttl_seconds)
+    # Extract username from request headers
+    username = _get_username_from_request(request)
+
+    expires_at = await create_stf_reservation(
+        redis_client, node_id, node, ttl_seconds, username=username
+    )
     if expires_at is None:
         raise HTTPException(status_code=409, detail="Node is already busy")
 

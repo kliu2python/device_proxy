@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.logging_config import setup_logging
 from backend.proxy_router import router as proxy_router
 from backend.node_manager import load_nodes_from_csv, router as node_router
+from backend.session_manager import router as session_router
 from backend.monitor import start_monitor
 
 setup_logging()
@@ -33,6 +34,7 @@ if frontend_dir.exists():
 
 app.include_router(proxy_router)
 app.include_router(node_router)
+app.include_router(session_router)
 
 
 def _get_index_path() -> Path:

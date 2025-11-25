@@ -14,12 +14,28 @@ from backend.session_state import (
     reserve_node_session,
     release_node_session,
     touch_session_activity,
+    set_session_owner,
 )
 
 router = APIRouter()
 redis_client = aioredis.from_url("redis://10.160.13.16:6379/0", decode_responses=True)
 
 logger = logging.getLogger(__name__)
+
+
+def _get_username_from_request(request: Request) -> str:
+    """Extract username from request headers or use default."""
+
+    # Try various header formats
+    username = (
+        request.headers.get("X-Username")
+        or request.headers.get("X-User")
+        or request.headers.get("Username")
+        or request.headers.get("User")
+        or "anonymous"
+    )
+
+    return username.strip()
 
 
 def _extract_session_id_from_path(path: str) -> Optional[str]:
@@ -642,6 +658,10 @@ async def create_session(request: Request):
             await redis_client.hset(SESSION_MAP_KEY, session_id, node_id)
             logger.info("Created session %s on node %s", session_id, node_id)
             await touch_session_activity(redis_client, session_id)
+
+            # Set session owner
+            username = _get_username_from_request(request)
+            await set_session_owner(redis_client, session_id, username)
         else:
             if reservation_holder:
                 await release_node_session(redis_client, reservation_holder)
@@ -690,6 +710,10 @@ async def selenium_create_session(request: Request):
         if session_id:
             await redis_client.hset(SESSION_MAP_KEY, session_id, node_id)
             await touch_session_activity(redis_client, session_id)
+
+            # Set session owner
+            username = _get_username_from_request(request)
+            await set_session_owner(redis_client, session_id, username)
         else:
             if reservation_holder:
                 await release_node_session(redis_client, reservation_holder)
