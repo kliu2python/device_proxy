@@ -438,6 +438,7 @@ async def forward_request(request: Request, path: str):
         target_node_id = await redis_client.hget(SESSION_MAP_KEY, session_id)
         if not target_node_id:
             logger.warning("Session %s not found for path %s", session_id, path)
+            release_node_session(redis_client, session_id)
             raise HTTPException(status_code=404, detail="Session not found")
 
         node_json = await redis_client.hget("nodes", target_node_id)
