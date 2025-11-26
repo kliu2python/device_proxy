@@ -86,6 +86,8 @@ let isFiltersMenuOpen = false;
 let editingNodeId = '';
 let detailsModalNode = null;
 let activeStfSession = null;
+let stfIdentityPrefillTimer = null;
+let stfIdentityPrefillAttempts = 0;
 
 function normaliseCookiePath(value) {
   if (typeof value !== 'string') {
@@ -400,6 +402,41 @@ const isAdminRoute = normalisedPathname === '/admin';
 
 const STOP_USING_MESSAGE_TYPE = 'device-proxy:stop-using';
 const STOP_USING_DELAY_MS = 150;
+const STF_DEFAULT_USERNAME = 'proxy';
+const STF_DEFAULT_EMAIL = 'proxy@fortinet.com';
+const STF_IDENTITY_PREFILL_INTERVAL_MS = 500;
+const STF_IDENTITY_PREFILL_MAX_ATTEMPTS = 40;
+const STF_NAME_INPUT_SELECTORS = [
+  'input[name="name"]',
+  'input#name',
+  'input[ng-model="ctrl.user.name"]',
+  'input[data-ng-model="ctrl.user.name"]',
+  'input[ng-model$="user.name"]',
+  'input[name="user.name"]',
+  'input[name="owner.name"]',
+  'input[data-testid="user-name"]',
+  'input[data-test="user-name"]',
+  'input[placeholder*="name" i]',
+  'input[aria-label*="name" i]',
+];
+const STF_EMAIL_INPUT_SELECTORS = [
+  'input[type="email"]',
+  'input[name="email"]',
+  'input#email',
+  'input[ng-model="ctrl.user.email"]',
+  'input[data-ng-model="ctrl.user.email"]',
+  'input[ng-model$="user.email"]',
+  'input[name="user.email"]',
+  'input[name="owner.email"]',
+  'input[data-testid="user-email"]',
+  'input[data-test="user-email"]',
+  'input[placeholder*="mail" i]',
+  'input[aria-label*="mail" i]',
+];
+const STF_NAME_KEYWORDS = ['name', 'user', 'username'];
+const STF_EMAIL_KEYWORDS = ['email', 'mail'];
+const STF_NAME_ALLOWED_TYPES = ['', 'text', 'search'];
+const STF_EMAIL_ALLOWED_TYPES = ['', 'text', 'email'];
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
@@ -1205,6 +1242,230 @@ function buildSessionStatusMessage(session) {
   return '';
 }
 
+function stopStfIdentityPrefill() {
+  if (stfIdentityPrefillTimer !== null) {
+    if (typeof window !== 'undefined' && typeof window.clearInterval === 'function') {
+      window.clearInterval(stfIdentityPrefillTimer);
+    }
+    stfIdentityPrefillTimer = null;
+  }
+  stfIdentityPrefillAttempts = 0;
+}
+
+function collectIdentityHints(element) {
+  if (!element) {
+    return [];
+  }
+
+  const hints = [
+    element.getAttribute('name'),
+    element.getAttribute('id'),
+    element.getAttribute('placeholder'),
+    element.getAttribute('aria-label'),
+    element.getAttribute('data-testid'),
+    element.getAttribute('data-test'),
+    element.getAttribute('title'),
+  ];
+
+  if (element.labels && element.labels.length > 0) {
+    Array.from(element.labels).forEach((label) => {
+      if (label && typeof label.textContent === 'string') {
+        hints.push(label.textContent);
+      }
+    });
+  }
+
+  return hints.map(normaliseText).filter(Boolean);
+}
+
+function isAllowedIdentityInputType(rawType, allowedTypeSet) {
+  const type = normaliseText(rawType);
+
+  if (type === 'hidden' || type === 'button') {
+    return false;
+  }
+
+  if (!allowedTypeSet || allowedTypeSet.size === 0) {
+    return true;
+  }
+
+  if (!type) {
+    return allowedTypeSet.has('') || allowedTypeSet.has('text');
+  }
+
+  return allowedTypeSet.has(type);
+}
+
+function findStfIdentityInput(doc, selectors, keywords, allowedTypes) {
+  if (!doc) {
+    return null;
+  }
+
+  for (const selector of selectors || []) {
+    if (!selector) {
+      continue;
+    }
+    try {
+      const element = doc.querySelector(selector);
+      if (element) {
+        return element;
+      }
+    } catch (error) {
+      // Ignore selector errors and continue searching.
+    }
+  }
+
+  const normalisedKeywords = Array.isArray(keywords)
+    ? keywords.map(normaliseText).filter(Boolean)
+    : [];
+  const allowedTypeSet =
+    Array.isArray(allowedTypes) && allowedTypes.length > 0
+      ? new Set(
+          allowedTypes
+            .map((type) =>
+              typeof type === 'string' ? type : String(type || '')
+            )
+            .map(normaliseText)
+        )
+      : null;
+
+  const inputs = Array.from(doc.querySelectorAll('input'));
+  for (const input of inputs) {
+    if (!input || input.disabled) {
+      continue;
+    }
+
+    if (!isAllowedIdentityInputType(input.getAttribute('type'), allowedTypeSet)) {
+      continue;
+    }
+
+    if (normalisedKeywords.length === 0) {
+      return input;
+    }
+
+    const hints = collectIdentityHints(input);
+    if (
+      hints.some((hint) =>
+        normalisedKeywords.some((keyword) => hint.includes(keyword))
+      )
+    ) {
+      return input;
+    }
+  }
+
+  return null;
+}
+
+function applyStfInputValue(input, value) {
+  if (!input || typeof value !== 'string') {
+    return false;
+  }
+
+  const trimmedValue = value.trim();
+  if (!trimmedValue) {
+    return false;
+  }
+
+  const currentValue = typeof input.value === 'string' ? input.value.trim() : '';
+
+  if (input.disabled) {
+    return currentValue === trimmedValue;
+  }
+
+  if (input.readOnly || input.hasAttribute('readonly')) {
+    return currentValue === trimmedValue;
+  }
+
+  if (currentValue !== trimmedValue) {
+    try {
+      input.value = trimmedValue;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  if (input.getAttribute('value') !== trimmedValue) {
+    input.setAttribute('value', trimmedValue);
+  }
+
+  ['input', 'change'].forEach((eventName) => {
+    try {
+      const event = new Event(eventName, { bubbles: true });
+      input.dispatchEvent(event);
+    } catch (error) {
+      // Ignore event dispatch issues.
+    }
+  });
+
+  return (typeof input.value === 'string' ? input.value.trim() : '') === trimmedValue;
+}
+
+function tryPrefillStfIdentity() {
+  if (!stfSessionFrame) {
+    return false;
+  }
+
+  let frameWindow;
+  try {
+    frameWindow = stfSessionFrame.contentWindow;
+  } catch (error) {
+    return false;
+  }
+
+  if (!frameWindow || !frameWindow.document) {
+    return false;
+  }
+
+  const doc = frameWindow.document;
+  const nameInput = findStfIdentityInput(
+    doc,
+    STF_NAME_INPUT_SELECTORS,
+    STF_NAME_KEYWORDS,
+    STF_NAME_ALLOWED_TYPES
+  );
+  const emailInput = findStfIdentityInput(
+    doc,
+    STF_EMAIL_INPUT_SELECTORS,
+    STF_EMAIL_KEYWORDS,
+    STF_EMAIL_ALLOWED_TYPES
+  );
+
+  const nameApplied = nameInput
+    ? applyStfInputValue(nameInput, STF_DEFAULT_USERNAME)
+    : false;
+  const emailApplied = emailInput
+    ? applyStfInputValue(emailInput, STF_DEFAULT_EMAIL)
+    : false;
+
+  return Boolean(nameInput && emailInput && nameApplied && emailApplied);
+}
+
+function startStfIdentityPrefill() {
+  if (!stfSessionFrame) {
+    return;
+  }
+
+  stopStfIdentityPrefill();
+  stfIdentityPrefillAttempts = 0;
+
+  const attempt = () => {
+    stfIdentityPrefillAttempts += 1;
+    const success = tryPrefillStfIdentity();
+    if (success || stfIdentityPrefillAttempts >= STF_IDENTITY_PREFILL_MAX_ATTEMPTS) {
+      stopStfIdentityPrefill();
+    }
+  };
+
+  if (typeof window !== 'undefined' && typeof window.setInterval === 'function') {
+    stfIdentityPrefillTimer = window.setInterval(
+      attempt,
+      STF_IDENTITY_PREFILL_INTERVAL_MS
+    );
+  }
+
+  attempt();
+}
+
 function setStfSessionFrameSource(url) {
   if (!stfSessionFrame) {
     return;
@@ -1291,6 +1552,8 @@ function updateStfSessionUi(session) {
 }
 
 function hideStfSessionUi() {
+  stopStfIdentityPrefill();
+
   if (stfSessionContainer) {
     stfSessionContainer.hidden = true;
     delete stfSessionContainer.dataset.nodeId;
@@ -1409,6 +1672,7 @@ function setActiveStfSession(session) {
   if (activeStfSession) {
     applyStfSessionAuth(activeStfSession);
     updateStfSessionUi(activeStfSession);
+    startStfIdentityPrefill();
   } else {
     hideStfSessionUi();
   }
@@ -2511,6 +2775,14 @@ if (paginationPrev) {
 if (paginationNext) {
   paginationNext.addEventListener('click', () => {
     goToPage(currentPage + 1);
+  });
+}
+
+if (stfSessionFrame) {
+  stfSessionFrame.addEventListener('load', () => {
+    if (activeStfSession) {
+      startStfIdentityPrefill();
+    }
   });
 }
 
