@@ -374,6 +374,15 @@ function deriveApiBaseUrl() {
     }
   }
 
+  if (
+    typeof window !== 'undefined' &&
+    window.location &&
+    window.location.origin &&
+    window.location.protocol === 'https:'
+  ) {
+    return window.location.origin.replace(/\/+$/, '');
+  }
+
   const protocol =
     typeof window !== 'undefined' && typeof window.location?.protocol === 'string'
       ? window.location.protocol
