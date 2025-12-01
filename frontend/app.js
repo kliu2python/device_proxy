@@ -374,12 +374,7 @@ function deriveApiBaseUrl() {
     }
   }
 
-  if (
-    typeof window !== 'undefined' &&
-    window.location &&
-    window.location.origin &&
-    window.location.protocol === 'https:'
-  ) {
+  if (typeof window !== 'undefined' && window.location && window.location.origin) {
     return window.location.origin.replace(/\/+$/, '');
   }
 
