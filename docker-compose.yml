@@ -14,5 +14,5 @@ services:
     ports:
       - "443:443"
     volumes:
-      - ./ssl/cert.crt:/etc/nginx/ssl/cert.crt:ro
-      - ./ssl/cert.key:/etc/nginx/ssl/cert.key:ro
+      - ./ssl/tls.crt:/etc/nginx/ssl/cert.crt:ro
+      - ./ssl/tls.key:/etc/nginx/ssl/cert.key:ro

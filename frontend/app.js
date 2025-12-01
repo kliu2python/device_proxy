@@ -347,57 +347,7 @@ function buildStreamEmbedUrl(node, streamUrl) {
   return `${buildStreamEmbedBaseUrl()}?${params.toString()}`;
 }
 
-function deriveApiBaseUrl() {
-  const overrides = [];
-
-  if (typeof window !== 'undefined') {
-    if (typeof window.API_BASE_URL === 'string') {
-      overrides.push(window.API_BASE_URL);
-    }
-
-    if (window.appConfig && typeof window.appConfig.apiBaseUrl === 'string') {
-      overrides.push(window.appConfig.apiBaseUrl);
-    }
-  }
-
-  if (document && document.body) {
-    const dataAttribute = document.body.getAttribute('data-api-base-url');
-    if (typeof dataAttribute === 'string') {
-      overrides.push(dataAttribute);
-    }
-  }
-
-  for (const candidate of overrides) {
-    const trimmed = typeof candidate === 'string' ? candidate.trim() : '';
-    if (trimmed) {
-      return trimmed.replace(/\/+$/, '');
-    }
-  }
-
-  if (typeof window !== 'undefined' && window.location && window.location.origin) {
-    return window.location.origin.replace(/\/+$/, '');
-  }
-
-  const protocol =
-    typeof window !== 'undefined' && typeof window.location?.protocol === 'string'
-      ? window.location.protocol
-      : 'http:';
-  const isHttpProtocol = protocol.startsWith('http');
-  const safeProtocol = isHttpProtocol ? protocol : 'http:';
-
-  let hostname =
-    typeof window !== 'undefined' && typeof window.location?.hostname === 'string'
-      ? window.location.hostname
-      : '';
-
-  if (!hostname) {
-    hostname = '127.0.0.1';
-  }
-
-  return `${safeProtocol}//${hostname}:${DEFAULT_API_PORT}`;
-}
-
-const API_BASE_URL = deriveApiBaseUrl();
+const API_BASE_URL = 'http://10.160.13.118:8090'
 const ADMIN_TOKEN_STORAGE_KEY = 'deviceProxyAdminToken';
 const normalisedPathname = window.location.pathname.replace(/\/+$/, '') || '/';
 const isAdminRoute = normalisedPathname === '/admin';
