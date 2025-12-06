@@ -347,7 +347,7 @@ function buildStreamEmbedUrl(node, streamUrl) {
   return `${buildStreamEmbedBaseUrl()}?${params.toString()}`;
 }
 
-const API_BASE_URL = 'http://10.160.13.118:8090'
+const API_BASE_URL = 'https://devicehub.qa.fortient-us.com:8090'
 const ADMIN_TOKEN_STORAGE_KEY = 'deviceProxyAdminToken';
 const normalisedPathname = window.location.pathname.replace(/\/+$/, '') || '/';
 const isAdminRoute = normalisedPathname === '/admin';
