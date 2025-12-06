@@ -71,7 +71,7 @@ Once the configuration is in place, reload the UI. Eligible devices will display
 
 ## SSL/HTTPS Configuration
 
-The Device Proxy can be configured to run with SSL/HTTPS encryption on port 443.
+By default the frontend now serves plain HTTP on port **8080**. If you need HTTPS, you can opt in by following one of the SSL setup guides below.
 
 ### Quick Setup (Docker-Only - Recommended)
 
