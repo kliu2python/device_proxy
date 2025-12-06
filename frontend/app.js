@@ -313,6 +313,16 @@ const STATUS_PRIORITY = ['busy', 'offline', 'online'];
 const DEFAULT_API_PORT = 8090;
 const STREAM_BASE_URL = 'http://10.160.13.110:8099/stream';
 
+function resolveApiBaseUrl() {
+  if (typeof window === 'undefined' || !window.location) {
+    return `http://localhost:${DEFAULT_API_PORT}`;
+  }
+
+  const { protocol, hostname, port } = window.location;
+  const hostPort = port ? `:${port}` : '';
+  return `${protocol}//${hostname}${hostPort}`;
+}
+
 function buildStreamEmbedBaseUrl() {
   if (typeof window !== 'undefined' && window.location && window.location.origin) {
     return `${window.location.origin.replace(/\/$/, '')}/stream/embed`;
@@ -347,7 +357,7 @@ function buildStreamEmbedUrl(node, streamUrl) {
   return `${buildStreamEmbedBaseUrl()}?${params.toString()}`;
 }
 
-const API_BASE_URL = 'https://devicehub.qa.fortient-us.com:8090'
+const API_BASE_URL = resolveApiBaseUrl();
 const ADMIN_TOKEN_STORAGE_KEY = 'deviceProxyAdminToken';
 const normalisedPathname = window.location.pathname.replace(/\/+$/, '') || '/';
 const isAdminRoute = normalisedPathname === '/admin';
