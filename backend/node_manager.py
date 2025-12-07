@@ -68,6 +68,9 @@ CSV_TEMPLATE_HEADERS = [
     "platform",
     "platform_version",
     "device_name",
+    "resolved_mantis_ids",
+    "build_number",
+    "artifact_urls",
     "resources",
 ]
 
@@ -428,6 +431,35 @@ def _normalise_numeric(value: Optional[str], default: int) -> int:
         raise NodeRegistrationError(f"Invalid numeric value '{value}'") from exc
 
 
+def _normalise_list(value) -> Optional[List[str]]:
+    if value is None:
+        return None
+
+    items: List[str] = []
+
+    if isinstance(value, str):
+        # Support both comma and semicolon delimited strings
+        value = value.replace(";", ",")
+        parts = [part.strip() for part in value.split(",") if part.strip()]
+        items.extend(parts)
+    elif isinstance(value, (list, tuple, set)):
+        for item in value:
+            if item is None:
+                continue
+            if isinstance(item, str):
+                normalised = item.strip()
+            else:
+                normalised = str(item).strip()
+            if normalised:
+                items.append(normalised)
+    else:
+        normalised = str(value).strip()
+        if normalised:
+            items.append(normalised)
+
+    return items or None
+
+
 def _normalise_node_payload(raw_node: Dict) -> Dict:
     node = dict(raw_node)
     node_id = node.get("id") or str(uuid.uuid4())
@@ -447,10 +479,41 @@ def _normalise_node_payload(raw_node: Dict) -> Dict:
     resources = node.get("resources")
     if isinstance(resources, str):
         try:
-            node["resources"] = json.loads(resources)
+            resources = json.loads(resources)
         except json.JSONDecodeError:
             logger.warning("Failed to decode resources JSON for node %s", node_id)
-            node.pop("resources", None)
+            resources = {}
+
+    if resources is None:
+        resources = {}
+    elif not isinstance(resources, dict):
+        logger.warning("Resources payload for node %s is not a dict; resetting", node_id)
+        resources = {}
+
+    build_number = _strip_or_none(node.pop("build_number", None))
+    resolved_mantis_ids = _normalise_list(node.pop("resolved_mantis_ids", None))
+    artifact_urls = _normalise_list(node.pop("artifact_urls", None))
+
+    build_info: Dict[str, object] = {}
+    if build_number:
+        build_info["build_number"] = build_number
+    if resolved_mantis_ids:
+        build_info["resolved_mantis_ids"] = resolved_mantis_ids
+    if artifact_urls:
+        build_info["artifact_urls"] = artifact_urls
+
+    if build_info:
+        existing_build_info = resources.get("build_info")
+        if isinstance(existing_build_info, dict):
+            merged_build_info = {**existing_build_info, **build_info}
+        else:
+            merged_build_info = build_info
+        resources["build_info"] = merged_build_info
+
+    if resources:
+        node["resources"] = resources
+    elif "resources" in node:
+        node.pop("resources")
 
     return node
 
@@ -641,6 +704,9 @@ def generate_csv_template() -> str:
             "platform": "iOS",
             "platform_version": "17.4",
             "device_name": "Example Device",
+            "resolved_mantis_ids": "MANT-1234;MANT-5678",
+            "build_number": "1.2.3",
+            "artifact_urls": "https://example.com/app.apk;https://example.com/app.ipa",
             "resources": json.dumps(
                 {
                     "session_data": {"device": "metadata"},
