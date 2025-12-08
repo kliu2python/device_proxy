@@ -9,5 +9,6 @@ COPY app.js /usr/share/nginx/html/static/app.js
 COPY embed.js /usr/share/nginx/html/static/embed.js
 COPY styles.css /usr/share/nginx/html/static/styles.css
 COPY embed.css /usr/share/nginx/html/static/embed.css
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80

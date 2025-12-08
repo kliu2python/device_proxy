@@ -69,37 +69,15 @@ The updated CSV template that you can download from `/nodes/template` now includ
 
 Once the configuration is in place, reload the UI. Eligible devices will display the **Open in STF** button, and selecting it will initiate a reservation and open the STF control interface in a new tab.
 
-## SSL/HTTPS Configuration
+## Access
 
-The Device Proxy can be configured to run with SSL/HTTPS encryption on port 443.
+The Device Proxy runs directly on port **8080** without SSL/HTTPS encryption.
 
-### Quick Setup (Docker-Only - Recommended)
+Start the containers:
+```bash
+docker compose up -d --build
+```
 
-**No host Nginx installation required!** Everything runs in Docker:
+Access the web interface at: `http://localhost:8080`
 
-1. Place SSL certificates in `ssl/` directory:
-   ```bash
-   mkdir -p ssl
-   cp your-cert.crt ssl/cert.crt
-   cp your-key.key ssl/cert.key
-   ```
-
-2. Start containers:
-   ```bash
-   docker compose up -d --build
-   ```
-
-3. Access: `https://devicehub.qa.fortinet-us.com`
-
-**See [DOCKER_SSL_SETUP.md](DOCKER_SSL_SETUP.md)** for complete instructions, troubleshooting, and how to create self-signed certificates for testing.
-
-### Alternative: Host Nginx Setup
-
-If you prefer using Nginx on the host machine instead of Docker:
-
-- **[SIMPLE_SSL_SETUP.md](SIMPLE_SSL_SETUP.md)** - Nginx reverse proxy on host (requires installing Nginx)
-- **[nginx-reverse-proxy.conf](nginx-reverse-proxy.conf)** - Ready-to-use Nginx configuration
-
-### Advanced: Multiple Services on Port 443
-
-If you need both Device Proxy and STF on the same port 443, see **[SSL_AND_STF_SETUP.md](SSL_AND_STF_SETUP.md)** for path-based or hostname-based routing options.
+The frontend (nginx) listens on port 80 inside the Docker container and is exposed as port 8080 on the host. API requests are automatically proxied from the frontend to the backend service running on port 8090 (internal to Docker).
