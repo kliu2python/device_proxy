@@ -71,13 +71,13 @@ Once the configuration is in place, reload the UI. Eligible devices will display
 
 ## Access
 
-The Device Proxy runs directly on port **8080** without SSL/HTTPS encryption.
+The Device Proxy runs directly on port **8080** without SSL/HTTPS or reverse proxy.
 
-Start the containers:
+Start the container:
 ```bash
 docker compose up -d --build
 ```
 
 Access the web interface at: `http://localhost:8080`
 
-The frontend (nginx) listens on port 80 inside the Docker container and is exposed as port 8080 on the host. API requests are automatically proxied from the frontend to the backend service running on port 8090 (internal to Docker).
+The application runs as a single FastAPI service that serves both the web interface and API endpoints on port 8080.

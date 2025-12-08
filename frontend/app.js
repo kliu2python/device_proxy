@@ -310,7 +310,6 @@ const REFRESH_INTERVAL = 15000;
 const PAGE_SIZE = 5;
 
 const STATUS_PRIORITY = ['busy', 'offline', 'online'];
-const DEFAULT_API_PORT = 8090;
 const STREAM_BASE_URL = 'http://10.160.13.110:8099/stream';
 
 function buildStreamEmbedBaseUrl() {
@@ -347,7 +346,8 @@ function buildStreamEmbedUrl(node, streamUrl) {
   return `${buildStreamEmbedBaseUrl()}?${params.toString()}`;
 }
 
-const API_BASE_URL = `http://localhost:${DEFAULT_API_PORT}`;
+// Use same origin for API calls (frontend and backend on same port)
+const API_BASE_URL = window.location.origin;
 const ADMIN_TOKEN_STORAGE_KEY = 'deviceProxyAdminToken';
 const normalisedPathname = window.location.pathname.replace(/\/+$/, '') || '/';
 const isAdminRoute = normalisedPathname === '/admin';
