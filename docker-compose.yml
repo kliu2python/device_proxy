@@ -4,8 +4,6 @@ services:
     image: appium-selenium-proxy
     ports:
       - "8090:8090"
-    extra_hosts:
-      - "devicehub.qa.fortinet-us.com:10.160.13.118"
 
   frontend:
     build:
@@ -14,9 +12,4 @@ services:
     depends_on:
       - proxy
     ports:
-      - "443:443"
-    volumes:
-      - ./ssl/tls.crt:/etc/nginx/ssl/cert.crt:ro
-      - ./ssl/tls.key:/etc/nginx/ssl/cert.key:ro
-    extra_hosts:
-      - "devicehub.qa.fortinet-us.com:10.160.13.118"
+      - "8080:80"
