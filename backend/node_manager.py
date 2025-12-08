@@ -336,7 +336,7 @@ def _build_stf_control_url(node: Dict, stf_config: Dict) -> str:
 
     base_url = base_url.rstrip("/")
     if template.startswith("#"):
-        return f"{base_url}/{template}"
+        return f"{base_url}{template}"
     if template.startswith("/"):
         return f"{base_url}{template}"
     if not template:
